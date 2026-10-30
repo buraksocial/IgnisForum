@@ -1,0 +1,59 @@
+{{define "home"}}
+{{template "header" .}}
+<div class="home-grid">
+  <div>
+    {{if not .Cats}}
+      <div class="empty">Henüz forum yok. Sunucuyu <code>--seed</code> ile örnek veriyle başlatabilirsiniz.</div>
+    {{end}}
+    {{range .Cats}}
+      <section class="cat-block">
+        <div class="cat-header">{{.Title}}</div>
+        <table class="forum-table"><tbody>
+          {{range .Forums}}
+          <tr class="forum-row">
+            <td><div class="forum-main">
+              <div class="forum-icon">▤</div>
+              <div>
+                <a class="forum-title" href="/f/{{.ID}}">{{.Title}}</a>
+                {{if .Description}}<div class="forum-desc">{{.Description}}</div>{{end}}
+                <div class="muted" style="font-size:12px;margin-top:4px">{{.ThreadCount}} konu · {{.PostCount}} mesaj</div>
+              </div>
+            </div></td>
+            <td class="forum-last">
+              {{if .LastPostURL}}
+                <a class="lp-title" href="{{.LastPostURL}}">{{.LastPostTitle}}</a>
+                <div class="lp-meta">{{.LastPoster}} · {{ago .LastPostTime}}</div>
+              {{else}}
+                <span class="muted">Henüz mesaj yok</span>
+              {{end}}
+            </td>
+          </tr>
+          {{end}}
+        </tbody></table>
+      </section>
+    {{end}}
+  </div>
+  <aside>
+    <div class="side-panel">
+      <div class="sp-title">Son Konular</div>
+      <ul>
+        {{range .LatestThreads}}
+        <li><a href="/t/{{.ID}}">{{.Title}}</a>
+          <div class="sp-meta">{{.Author}} · {{ago .Date}}</div></li>
+        {{else}}
+        <li class="muted">Henüz konu yok.</li>
+        {{end}}
+      </ul>
+    </div>
+    <div class="side-panel" style="margin-top:16px">
+      <div class="sp-title">Ara</div>
+      <div style="padding:12px 16px">
+        <form method="get" action="/search">
+          <input type="search" name="q" placeholder="Konu ve mesajlarda ara…">
+        </form>
+      </div>
+    </div>
+  </aside>
+</div>
+{{template "footer" .}}
+{{end}}

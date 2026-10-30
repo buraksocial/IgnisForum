@@ -1,0 +1,25 @@
+{{define "latest"}}
+{{template "header" .}}
+<h1>Yeni İçerikler</h1>
+<table class="thread-table"><tbody>
+  {{range .LatestThreads}}
+  <tr class="thread-row">
+    <td>
+      <a class="thread-title" href="/t/{{.ID}}">{{.Title}}</a>
+      <div class="thread-by">{{.Author}} · {{ago .Date}}</div>
+    </td>
+    <td class="thread-counts"><div class="num">{{.ReplyCount}}</div><div class="lbl">yanıt</div></td>
+    <td class="thread-counts"><div class="num">{{.ViewCount}}</div><div class="lbl">görüntülenme</div></td>
+    <td class="forum-last">
+      {{if .LastPostID}}
+      <a class="lp-title" href="/t/{{.ID}}">{{.LastPostTitle}}</a>
+      <div class="lp-meta">{{.LastPoster}} · {{ago .LastPostTime}}</div>
+      {{end}}
+    </td>
+  </tr>
+  {{else}}
+  <tr><td class="empty">Henüz içerik yok.</td></tr>
+  {{end}}
+</tbody></table>
+{{template "footer" .}}
+{{end}}

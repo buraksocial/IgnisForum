@@ -1,0 +1,41 @@
+{{define "header"}}<!doctype html>
+<html lang="tr" data-color-scheme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.Title}}</title>
+<link rel="stylesheet" href="/s/thred/style.css">
+</head>
+<body>
+<header class="site-header"><div class="container inner">
+<a class="logo" href="/">Ignis<span>Forum</span></a>
+<nav class="main-nav">
+  <a href="/" class="{{if eq .Nav "home"}}active{{end}}">Forumlar</a>
+  <a href="/latest" class="{{if eq .Nav "latest"}}active{{end}}">Yeni içerikler</a>
+  <a href="/search" class="{{if eq .Nav "search"}}active{{end}}">Ara</a>
+</nav>
+<div class="hdr-user">
+  <button class="theme-toggle" title="Tema değiştir" onclick="(function(){var h=document.documentElement;h.dataset.colorScheme=h.dataset.colorScheme==='dark'?'light':'dark';try{localStorage.setItem('ignis-theme',h.dataset.colorScheme)}catch(e){}})()">◐</button>
+  <a class="btn" href="/login">Giriş</a>
+</div>
+</div></header>
+<div class="container">
+{{if .Rebuilding}}<div class="rebuilding-banner">İçerik indeksleri yeniden oluşturuluyor — listeler geçici olarak eksik görünebilir.</div>{{end}}
+<nav class="breadcrumb"><a href="/">Ana Sayfa</a>{{range .Crumbs}}{{if .URL}} › <a href="{{.URL}}">{{.Title}}</a>{{else}} › {{.Title}}{{end}}{{end}}</nav>
+{{end}}
+
+{{define "pager"}}
+{{if gt .TotalPages 1}}<div class="pager">
+  {{if gt .Page 1}}<a href="?p={{sub .Page 1}}{{if .Sort}}&amp;sort={{.Sort}}{{end}}">‹</a>{{end}}
+  {{range .PageWindow}}<a href="?p={{.}}{{if $.Sort}}&amp;sort={{$.Sort}}{{end}}" class="{{if eq . $.Page}}cur{{end}}">{{.}}</a>{{end}}
+  {{if lt .Page .TotalPages}}<a href="?p={{add .Page 1}}{{if .Sort}}&amp;sort={{.Sort}}{{end}}">›</a>{{end}}
+</div>{{end}}
+{{end}}
+
+{{define "footer"}}</div>
+<footer class="site-footer"><div class="container inner">
+<span>IgnisForum — <a href="https://github.com/buraksocial/IgnisForum">açık kaynak</a> · güç veren: <a href="https://github.com/buraksocial/IgnisDB-Go">IgnisDB-Go</a></span>
+<span>{{.Version}}</span>
+</div></footer>
+<script>try{var t=localStorage.getItem('ignis-theme');if(t)document.documentElement.dataset.colorScheme=t;else if(matchMedia('(prefers-color-scheme:dark)').matches)document.documentElement.dataset.colorScheme='dark'}catch(e){}</script>
+</body></html>{{end}}

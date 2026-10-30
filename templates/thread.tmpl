@@ -1,0 +1,49 @@
+{{define "thread"}}
+{{template "header" .}}
+<div class="toolbar">
+  <h1>{{.Thread.Title}}</h1>
+  <a class="btn" href="/f/{{.Thread.NodeID}}">Foruma dön</a>
+</div>
+<p class="muted" style="font-size:13px">
+  {{.Thread.PostCount}} mesaj · {{.Thread.ViewCount}} görüntülenme
+</p>
+{{range .Posts}}
+<article class="post-block" id="post-{{.ID}}">
+  <div class="post-head">
+    <div class="post-avatar">{{first .Author}}</div>
+    <div class="post-who">
+      <span class="post-username">{{.Author}}</span>
+      <div class="post-rank">{{.Rank}}</div>
+    </div>
+    <div class="post-num">#{{.Number}} · {{ago .Date}}</div>
+  </div>
+  <div class="post-body">{{.Rendered}}</div>
+  <div class="post-foot">
+    {{if .Edited}}<span class="muted">Son düzenleme: {{.Author}} · {{ago .Date}}</span>{{end}}
+    <a href="#post-{{.ID}}" title="Kalıcı bağlantı">#{{.Number}}</a>
+  </div>
+</article>
+{{else}}
+<div class="empty">Bu konuda henüz mesaj yok.</div>
+{{end}}
+{{template "pager" .}}
+{{if .CanReply}}
+<form class="reply-box" method="post" action="/t/{{.Thread.ID}}/reply">
+  <label>Hızlı Yanıt</label>
+  <textarea name="message" rows="5" required placeholder="Cevabınızı yazın… ([b]kalın[/b], [quote]alıntı[/quote], [code]kod[/code])"></textarea>
+  <div style="margin-top:10px"><button type="submit" class="btn btn-primary">Yanıtla</button></div>
+</form>
+{{end}}
+{{template "footer" .}}
+{{end}}
+
+{{define "newthread"}}
+{{template "header" .}}
+<h1>Yeni Konu — {{.Node.Title}}</h1>
+<form method="post" action="/f/{{.Node.ID}}/new" style="max-width:720px">
+  <div class="form-row"><label>Başlık</label><input type="text" name="title" required maxlength="160" placeholder="Konu başlığı"></div>
+  <div class="form-row"><label>Mesaj</label><textarea name="message" rows="8" required placeholder="[b]kalın[/b], [url=https://example.com]bağlantı[/url], [code]kod[/code] desteklenir"></textarea></div>
+  <div class="form-row"><button type="submit" class="btn btn-primary">Konuyu Aç</button> <a class="btn" href="/f/{{.Node.ID}}">İptal</a></div>
+</form>
+{{template "footer" .}}
+{{end}}
