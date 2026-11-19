@@ -259,6 +259,20 @@ func (s *Store) ZCountUpTo(indexKey string, maxScore float64) int {
 	return len(s.eng.ZRangeByScore([]byte(indexKey), math.Inf(-1), maxScore, 0, -1))
 }
 
+// ZRemRangeByScore removes every member with minScore <= score <= maxScore.
+// Composed from the frozen engine API (ZRangeByScore + ZRem); safe only where
+// the range stays small (rate-limit windows), never for large indexes.
+func (s *Store) ZRemRangeByScore(indexKey string, minScore, maxScore float64) int {
+	members := s.eng.ZRangeByScore([]byte(indexKey), minScore, maxScore, 0, -1)
+	n := 0
+	for _, m := range members {
+		if s.eng.ZRem([]byte(indexKey), m) > 0 {
+			n++
+		}
+	}
+	return n
+}
+
 // FTAdd / FTSearch / FTRemove are exposed for full-text indexing (docID = "post:{id}").
 func (s *Store) FTAdd(docID, text string) { s.eng.FTAdd(docID, text) }
 func (s *Store) FTSearch(q string, limit int) []FTHit {

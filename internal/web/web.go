@@ -7,11 +7,17 @@
 package web
 
 import (
+	"context"
+	"crypto/rand"
+	"crypto/subtle"
 	"embed"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html/template"
 	"net/http"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -20,7 +26,9 @@ import (
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
 
+	"github.com/buraksocial/IgnisForum/internal/auth"
 	"github.com/buraksocial/IgnisForum/internal/domain"
+	"github.com/buraksocial/IgnisForum/internal/perm"
 	"github.com/buraksocial/IgnisForum/internal/repo"
 	"github.com/buraksocial/IgnisForum/internal/store"
 )
@@ -28,17 +36,28 @@ import (
 // Version is stamped by main via ldflags.
 var Version = "dev"
 
+// Deps carries the M2 services into the web layer.
+type Deps struct {
+	Auth   *auth.Service
+	Users  *auth.UserRepo
+	RL     *auth.RateLimiter
+	Perms  *perm.Engine
+	Secure bool // cookies carry the Secure flag (behind TLS, M6)
+}
+
 // Server holds shared dependencies for all handlers.
 type Server struct {
 	Store *store.Store
 	Repos *repo.Repos
+	D     Deps
 	css   []byte
 	tmpl  *template.Template
 }
 
-// New builds the router with the M1 surface. `assets` is the embedded theme FS
-// (templates/ + styles/thred/style.css) from the module root assets package.
-func New(s *store.Store, r *repo.Repos, assets embed.FS) chi.Router {
+// New builds the router with the M2 surface (content + auth). `assets` is the
+// embedded theme FS (templates/ + styles/thred/style.css) from the module root
+// assets package.
+func New(s *store.Store, r *repo.Repos, d Deps, assets embed.FS) chi.Router {
 	css, err := assets.ReadFile("styles/thred/style.css")
 	if err != nil {
 		panic("web: theme css missing from embed: " + err.Error())
@@ -46,14 +65,22 @@ func New(s *store.Store, r *repo.Repos, assets embed.FS) chi.Router {
 	srv := &Server{
 		Store: s,
 		Repos: r,
+		D:     d,
 		css:   css,
 		tmpl:  loadTemplates(assets),
 	}
+	return buildRouter(srv)
+}
+
+// buildRouter wires middleware + routes; factored out so tests can hold a
+// *Server directly.
+func buildRouter(srv *Server) chi.Router {
 
 	rr := chi.NewRouter()
 	rr.Use(chimw.Recoverer)
 	rr.Use(chimw.RequestID)
 	rr.Use(chimw.RealIP)
+	rr.Use(srv.sessionMW) // resolves ignis_sid → context (one KV Get per request)
 
 	rr.Get("/healthz", srv.healthz)
 	rr.Get("/s/thred/style.css", srv.serveStyle)
@@ -68,8 +95,57 @@ func New(s *store.Store, r *repo.Repos, assets embed.FS) chi.Router {
 	rr.Get("/t/{threadID}/post/{postID}", srv.postRedirect)
 	rr.Post("/t/{threadID}/reply", srv.reply)
 
+	rr.Get("/login", srv.loginForm)
+	rr.Post("/login", srv.loginSubmit)
+	rr.Get("/register", srv.registerForm)
+	rr.Post("/register", srv.registerSubmit)
+	rr.Post("/logout", srv.logout)
+
 	rr.NotFound(srv.notFound)
 	return rr
+}
+
+// --- session context ---
+
+type ctxKey int
+
+const sessionCtx ctxKey = 1
+
+// sessionMW resolves the ignis_sid cookie to a live session and stores it in
+// the request context. It is exactly one KV Get for signed-in users and zero
+// for guests (cookie missing → skip).
+func (srv *Server) sessionMW(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // forms are small
+			r.ParseMultipartForm(0)
+		}
+		if c, err := r.Cookie("ignis_sid"); err == nil && c.Value != "" {
+			if sess := srv.D.Auth.GetSession(c.Value); sess != nil {
+				next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), sessionCtx, sess)))
+				return
+			}
+			// Stale/expired cookie: clear it so the browser stops sending it.
+			http.SetCookie(w, &http.Cookie{Name: "ignis_sid", Value: "", Path: "/", MaxAge: -1})
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// sessOf returns the request's session (nil = guest).
+func sessOf(r *http.Request) *auth.Session {
+	s, _ := r.Context().Value(sessionCtx).(*auth.Session)
+	return s
+}
+
+// me resolves the signed-in user blob (nil for guests).
+func (srv *Server) me(r *http.Request) *domain.User {
+	s := sessOf(r)
+	if s == nil {
+		return nil
+	}
+	u, _ := srv.D.Users.GetByID(s.UserID)
+	return u
 }
 
 // --- view models ---
@@ -84,6 +160,14 @@ type pageData struct {
 	Version    string
 	Now        time.Time
 
+	// M2 identity: Me is nil for guests; CSRF is the session token every
+	// form must submit.
+	Me      *domain.User
+	Sess    *auth.Session
+	CSRF    string
+	Admin   bool
+	Flashes []string
+
 	// home / latest
 	Cats          []catView
 	LatestThreads []threadRow
@@ -95,6 +179,7 @@ type pageData struct {
 	TotalPages int
 	PageWindow []int
 	Threads    []threadRow
+	CanThread  bool
 
 	// thread
 	Thread   *domain.Thread
@@ -105,6 +190,11 @@ type pageData struct {
 	Query string
 	Hits  []threadRow
 	HaveQ bool
+
+	// auth forms
+	FormError    string
+	Remember     bool
+	RedirectBack string
 }
 
 type catView struct {
@@ -151,12 +241,77 @@ type postRow struct {
 
 // --- base helpers ---
 
-func (srv *Server) base(title, nav string, crumbs []Crumb) *pageData {
-	return &pageData{
+// base builds the render model. Me/CSRF/Admin are resolved for every page from
+// the session context (zero extra reads for guests, one Get for users).
+func (srv *Server) base(r *http.Request, title, nav string, crumbs []Crumb) *pageData {
+	d := &pageData{
 		Title: title, Nav: nav, Crumbs: crumbs,
 		Rebuilding: srv.Store.Rebuilding(),
 		Version:    Version, Now: time.Now(),
+		Sess: sessOf(r),
 	}
+	if d.Sess != nil {
+		d.CSRF = d.Sess.CSRF
+		d.Me = srv.me(r)
+		if d.Me == nil {
+			// Session points at a deleted user: drop both.
+			srv.D.Auth.DestroySession(d.Sess.SID)
+			d.Sess, d.CSRF = nil, ""
+		} else {
+			d.Admin = srv.can(r, d.Me, perm.ScopeGlobal, 0, perm.KeyAdmin)
+		}
+	}
+	return d
+}
+
+// can is the permission check seam (Effective is cached in perm.Engine).
+func (srv *Server) can(r *http.Request, u *domain.User, ctype string, cid uint64, key string) bool {
+	var uid uint64
+	var groups []uint64
+	if u != nil {
+		uid, groups = u.ID, u.GroupIDs
+	}
+	return srv.D.Perms.Effective(uid, groups, ctype, cid, key)
+}
+
+// csrfOK validates the posted token against the session. Guests have no
+// session at all → every POST from them must be rejected (the handlers
+// redirect to login before this even matters, but defence in depth).
+func csrfOK(r *http.Request, token string) bool {
+	return auth.ValidateCSRF(sessOf(r), token)
+}
+
+// requireAuth gates write endpoints: guests are bounced to /login?next=... .
+func (srv *Server) requireAuth(w http.ResponseWriter, r *http.Request) *domain.User {
+	if u := srv.me(r); u != nil {
+		return u
+	}
+	target := "/login?next=" + url.QueryEscape(r.URL.RequestURI())
+	if r.Method != http.MethodGet {
+		target = "/login"
+	}
+	http.Redirect(w, r, target, http.StatusFound)
+	return nil
+}
+
+// deny renders a permission-denied page (logged in but lacks the grant).
+func (srv *Server) deny(w http.ResponseWriter, r *http.Request, msg string) {
+	w.WriteHeader(http.StatusForbidden)
+	d := srv.base(r, "İzin yok", "", nil)
+	d.FormError = msg
+	srv.render(w, "error", d)
+}
+
+// tooMany renders the 429 state with Retry-After so clients back off honestly.
+func (srv *Server) tooMany(w http.ResponseWriter, r *http.Request, retry time.Duration) {
+	if retry < time.Second {
+		retry = time.Second
+	}
+	w.Header().Set("Retry-After", strconv.Itoa(int(retry.Seconds())))
+	w.WriteHeader(http.StatusTooManyRequests)
+	d := srv.base(r, "Çok fazla deneme", "", nil)
+	d.FormError = fmt.Sprintf("Çok fazla deneme yaptınız. Lütfen %d saniye sonra tekrar deneyin.", int(retry.Seconds()))
+	srv.render(w, "error", d)
 }
 
 func (srv *Server) render(w http.ResponseWriter, name string, data *pageData) {
@@ -225,30 +380,34 @@ func (srv *Server) serveStyle(w http.ResponseWriter, _ *http.Request) {
 
 func (srv *Server) notFound(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotFound)
-	srv.render(w, "notfound", srv.base("Bulunamadı", "", nil))
+	srv.render(w, "notfound", srv.base(r, "Bulunamadı", "", nil))
 }
 
 // --- content handlers ---
 
-func (srv *Server) home(w http.ResponseWriter, _ *http.Request) {
+func (srv *Server) home(w http.ResponseWriter, r *http.Request) {
 	tree, err := srv.Repos.Nodes.LoadTree()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	d := srv.base("IgnisForum — Forum", "home", nil)
-	d.Cats = srv.buildCats(tree)
-	d.LatestThreads = srv.threadsFromIDs(srv.Store.ZPage(repo.IdxLatestThreads, 0, 10))
+	d := srv.base(r, "IgnisForum — Forum", "home", nil)
+	d.Cats = srv.buildCats(r, d.Me, tree)
+	d.LatestThreads = srv.threadsFromIDs(srv.Store.ZPage(repo.IdxLatestThreads, 0, 10), d.Me)
 	srv.render(w, "home", d)
 }
 
 // buildCats turns the slim tree blob into a render model. One node-blob Get per
 // forum supplies counts + last-post card; the engine hot cache keeps this cheap.
-func (srv *Server) buildCats(tree *repo.Tree) []catView {
+// Forums the caller lacks forum_view on are skipped entirely (XenForo behaviour).
+func (srv *Server) buildCats(r *http.Request, me *domain.User, tree *repo.Tree) []catView {
 	out := make([]catView, 0, len(tree.Categories))
 	for _, c := range tree.Categories {
 		cv := catView{Title: c.Title}
 		for _, f := range c.Forums {
+			if !srv.can(r, me, perm.ScopeNode, f.NodeID, perm.KeyForumView) {
+				continue
+			}
 			fv := forumView{ID: f.NodeID, Title: f.Title, Slug: f.Slug}
 			if node, ok := srv.Repos.Nodes.Get(f.NodeID); ok {
 				fv.Description = node.Description
@@ -267,14 +426,16 @@ func (srv *Server) buildCats(tree *repo.Tree) []catView {
 			}
 			cv.Forums = append(cv.Forums, fv)
 		}
-		out = append(out, cv)
+		if len(cv.Forums) > 0 {
+			out = append(out, cv)
+		}
 	}
 	return out
 }
 
-func (srv *Server) latest(w http.ResponseWriter, _ *http.Request) {
-	d := srv.base("Yeni içerikler", "latest", nil)
-	d.LatestThreads = srv.threadsFromIDs(srv.Store.ZPage(repo.IdxLatestThreads, 0, 50))
+func (srv *Server) latest(w http.ResponseWriter, r *http.Request) {
+	d := srv.base(r, "Yeni içerikler", "latest", nil)
+	d.LatestThreads = srv.threadsFromIDs(srv.Store.ZPage(repo.IdxLatestThreads, 0, 50), d.Me)
 	srv.render(w, "latest", d)
 }
 
@@ -283,6 +444,15 @@ func (srv *Server) forum(w http.ResponseWriter, r *http.Request) {
 	node, ok := srv.Repos.Nodes.Get(nodeID)
 	if !ok {
 		srv.notFound(w, r)
+		return
+	}
+	d := srv.base(r, node.Title, "home", []Crumb{{URL: "/f/" + itoa(nodeID), Title: node.Title}})
+	if !srv.can(r, d.Me, perm.ScopeNode, nodeID, perm.KeyForumView) {
+		if d.Me == nil {
+			srv.requireAuth(w, r) // guests → login (with next=)
+			return
+		}
+		srv.deny(w, r, "Bu forumu görüntüleme izniniz yok.")
 		return
 	}
 	sortKey := r.URL.Query().Get("sort")
@@ -294,13 +464,13 @@ func (srv *Server) forum(w http.ResponseWriter, r *http.Request) {
 	page := parseInt(r, "p", 1)
 	ids := srv.Repos.Threads.List(nodeID, sortKey, (page-1)*pageSize, pageSize)
 
-	d := srv.base(node.Title, "home", []Crumb{{URL: "/f/" + itoa(nodeID), Title: node.Title}})
 	d.Node = node
 	d.Sort = sortKey
-	d.Threads = srv.threadsFromIDs(ids)
+	d.Threads = srv.threadsFromIDs(ids, d.Me)
 	d.Page = page
 	d.TotalPages = pageCount(srv.Store.ZCard(repo.NodeThreadsKey(nodeID)), pageSize)
 	d.PageWindow = pageWindow(page, d.TotalPages)
+	d.CanThread = srv.can(r, d.Me, perm.ScopeNode, nodeID, perm.KeyForumThread)
 	srv.render(w, "forum", d)
 }
 
@@ -309,6 +479,15 @@ func (srv *Server) thread(w http.ResponseWriter, r *http.Request) {
 	th, ok := srv.Repos.Threads.Get(threadID)
 	if !ok || th.Status == domain.ThreadDeleted {
 		srv.notFound(w, r)
+		return
+	}
+	d := srv.base(r, th.Title, "home", []Crumb{{URL: "/f/" + itoa(th.NodeID), Title: srv.nodeName(th.NodeID)}})
+	if !srv.can(r, d.Me, perm.ScopeNode, th.NodeID, perm.KeyForumView) {
+		if d.Me == nil {
+			srv.requireAuth(w, r)
+			return
+		}
+		srv.deny(w, r, "Bu konuyu görüntüleme izniniz yok.")
 		return
 	}
 	// View counter: write primary + one in-node index score update (M1 accepts
@@ -333,13 +512,12 @@ func (srv *Server) thread(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	d := srv.base(th.Title, "home", []Crumb{{URL: "/f/" + itoa(th.NodeID), Title: srv.nodeName(th.NodeID)}})
 	d.Thread = th
 	d.Posts = rows
 	d.Page = page
 	d.TotalPages = pageCount(srv.Store.ZCard(repo.ThreadPostsKey(threadID)), pageSize)
 	d.PageWindow = pageWindow(page, d.TotalPages)
-	d.CanReply = th.Status == domain.ThreadOpen
+	d.CanReply = th.Status == domain.ThreadOpen && srv.can(r, d.Me, perm.ScopeNode, th.NodeID, perm.KeyForumReply)
 	srv.render(w, "thread", d)
 }
 
@@ -364,8 +542,31 @@ func (srv *Server) postRedirect(w http.ResponseWriter, r *http.Request) {
 
 func (srv *Server) reply(w http.ResponseWriter, r *http.Request) {
 	threadID := parseID(chi.URLParam(r, "threadID"))
+	// Auth gate FIRST (guests bounce to login), then CSRF, then permissions.
+	me := srv.requireAuth(w, r)
+	if me == nil {
+		return
+	}
 	if err := r.ParseForm(); err != nil {
 		srv.notFound(w, r)
+		return
+	}
+	if !csrfOK(r, r.FormValue("csrf")) {
+		srv.deny(w, r, "Oturum doğrulaması başarısız (CSRF). Sayfayı yenileyip tekrar deneyin.")
+		return
+	}
+	th, ok := srv.Repos.Threads.Get(threadID)
+	if !ok {
+		srv.notFound(w, r)
+		return
+	}
+	if !srv.can(r, me, perm.ScopeNode, th.NodeID, perm.KeyForumReply) {
+		srv.deny(w, r, "Bu foruma yanıt yazma izniniz yok.")
+		return
+	}
+	// Anti-flood: 30s window, max 5 replies per user (§ rate-limit spec).
+	if ok, retry := srv.D.RL.Allow("reply", itoa(me.ID), 5, 30*time.Second); !ok {
+		srv.tooMany(w, r, retry)
 		return
 	}
 	msg := strings.TrimSpace(r.FormValue("message"))
@@ -373,7 +574,7 @@ func (srv *Server) reply(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/t/"+itoa(threadID), http.StatusSeeOther)
 		return
 	}
-	post, err := srv.Repos.Posts.Create(threadID, 1, msg) // M2: real session user
+	post, err := srv.Repos.Posts.Create(threadID, me.ID, msg)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -390,17 +591,40 @@ func (srv *Server) newThreadForm(w http.ResponseWriter, r *http.Request) {
 		srv.notFound(w, r)
 		return
 	}
-	d := srv.base("Yeni Konu", "home", []Crumb{
+	d := srv.base(r, "Yeni Konu", "home", []Crumb{
 		{URL: "/f/" + itoa(nodeID), Title: node.Title}, {Title: "Yeni Konu"},
 	})
+	if srv.requireAuth(w, r) == nil {
+		return
+	}
+	if !srv.can(r, d.Me, perm.ScopeNode, nodeID, perm.KeyForumThread) {
+		srv.deny(w, r, "Bu forumda konu açma izniniz yok.")
+		return
+	}
 	d.Node = node
 	srv.render(w, "newthread", d)
 }
 
 func (srv *Server) createThread(w http.ResponseWriter, r *http.Request) {
 	nodeID := parseID(chi.URLParam(r, "nodeID"))
+	me := srv.requireAuth(w, r)
+	if me == nil {
+		return
+	}
 	if err := r.ParseForm(); err != nil {
 		srv.notFound(w, r)
+		return
+	}
+	if !csrfOK(r, r.FormValue("csrf")) {
+		srv.deny(w, r, "Oturum doğrulaması başarısız (CSRF). Sayfayı yenileyip tekrar deneyin.")
+		return
+	}
+	if !srv.can(r, me, perm.ScopeNode, nodeID, perm.KeyForumThread) {
+		srv.deny(w, r, "Bu forumda konu açma izniniz yok.")
+		return
+	}
+	if ok, retry := srv.D.RL.Allow("thread", itoa(me.ID), 3, 60*time.Second); !ok {
+		srv.tooMany(w, r, retry)
 		return
 	}
 	title := strings.TrimSpace(r.FormValue("title"))
@@ -409,7 +633,7 @@ func (srv *Server) createThread(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "başlık ve mesaj gerekli", http.StatusBadRequest)
 		return
 	}
-	th, _, err := srv.Repos.Threads.Create(nodeID, 1, title, msg) // M2: session uid
+	th, _, err := srv.Repos.Threads.Create(nodeID, me.ID, title, msg)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -418,11 +642,28 @@ func (srv *Server) createThread(w http.ResponseWriter, r *http.Request) {
 }
 
 func (srv *Server) search(w http.ResponseWriter, r *http.Request) {
+	d := srv.base(r, "Arama", "search", nil)
+	if !srv.can(r, d.Me, perm.ScopeGlobal, 0, perm.KeySearch) {
+		if d.Me == nil {
+			srv.requireAuth(w, r)
+			return
+		}
+		srv.deny(w, r, "Arama yapma izniniz yok.")
+		return
+	}
 	q := strings.TrimSpace(r.URL.Query().Get("q"))
-	d := srv.base("Arama", "search", nil)
 	d.Query = q
 	d.HaveQ = q != ""
 	if q != "" {
+		// 10 searches / 30s per user bucket (user id or guest IP hash).
+		bucket := "g:" + auth.HashIP(r.RemoteAddr)
+		if d.Me != nil {
+			bucket = "u:" + itoa(d.Me.ID)
+		}
+		if ok, retry := srv.D.RL.Allow("search", bucket, 10, 30*time.Second); !ok {
+			srv.tooMany(w, r, retry)
+			return
+		}
 		hits := srv.Store.FTSearch(q, 50)
 		seen := make(map[uint64]struct{}, len(hits))
 		threads := make([]uint64, 0, len(hits))
@@ -441,14 +682,194 @@ func (srv *Server) search(w http.ResponseWriter, r *http.Request) {
 			seen[post.ThreadID] = struct{}{}
 			threads = append(threads, post.ThreadID)
 		}
-		d.Hits = srv.threadsFromIDs(threads)
+		d.Hits = srv.threadsFromIDs(threads, d.Me)
 	}
 	srv.render(w, "search", d)
 }
 
+// --- auth handlers ---
+
+const maxBody = 1 << 20 // 1MB — forms are small; reject anything larger early
+
+func (srv *Server) setSessionCookie(w http.ResponseWriter, sess *auth.Session) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     "ignis_sid",
+		Value:    sess.SID,
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		Secure:   srv.D.Secure,
+		MaxAge:   int(time.Until(sess.ExpiresAt).Seconds()),
+	})
+}
+
+// issuePreCSRF creates a short-lived double-submit token for login/register,
+// where there is not yet an authenticated session to bind the token to.
+func (srv *Server) issuePreCSRF(w http.ResponseWriter) (string, error) {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	token := hex.EncodeToString(b)
+	http.SetCookie(w, &http.Cookie{
+		Name: "ignis_pre_csrf", Value: token, Path: "/", HttpOnly: true,
+		SameSite: http.SameSiteLaxMode, Secure: srv.D.Secure, MaxAge: 600,
+	})
+	return token, nil
+}
+
+func validPreCSRF(r *http.Request) bool {
+	c, err := r.Cookie("ignis_pre_csrf")
+	if err != nil || c.Value == "" {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(c.Value), []byte(r.FormValue("csrf"))) == 1
+}
+
+func (srv *Server) loginForm(w http.ResponseWriter, r *http.Request) {
+	d := srv.base(r, "Giriş", "", nil)
+	if d.Me != nil {
+		http.Redirect(w, r, "/", http.StatusFound)
+		return
+	}
+	if d.CSRF, _ = srv.issuePreCSRF(w); d.CSRF == "" {
+		http.Error(w, "csrf token unavailable", http.StatusInternalServerError)
+		return
+	}
+	d.RedirectBack = safeNext(r.URL.Query().Get("next"))
+	srv.render(w, "login", d)
+}
+
+// safeNext keeps the login redirect on-site (no open redirect).
+func safeNext(next string) string {
+	if next == "" || !strings.HasPrefix(next, "/") || strings.HasPrefix(next, "//") {
+		return "/"
+	}
+	return next
+}
+
+func (srv *Server) loginSubmit(w http.ResponseWriter, r *http.Request) {
+	d := srv.base(r, "Giriş", "", nil)
+	d.Remember = r.FormValue("remember") != ""
+	d.RedirectBack = safeNext(r.FormValue("next"))
+	fail := func(status int, msg string) {
+		d.FormError = msg
+		w.WriteHeader(status)
+		srv.render(w, "login", d)
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxBody)
+	if err := r.ParseForm(); err != nil || r.ContentLength > maxBody {
+		fail(http.StatusBadRequest, "İstek çözümlenemedi.")
+		return
+	}
+	if !validPreCSRF(r) {
+		fail(http.StatusForbidden, "Oturum doğrulaması başarısız (CSRF). Formu yenileyip tekrar deneyin.")
+		return
+	}
+	ident := strings.TrimSpace(r.FormValue("username"))
+	pw := r.FormValue("password")
+
+	// Two buckets: per-identifier and per-IP (XenForo-style pairing).
+	ipBucket := auth.HashIP(r.RemoteAddr)
+	okA, retryA := srv.D.RL.Allow("login", "ip:"+ipBucket, 10, 10*time.Minute)
+	okB, retryB := srv.D.RL.Allow("login", "id:"+strings.ToLower(ident), 10, 10*time.Minute)
+	if !okA || !okB {
+		retry := retryA
+		if okA || retryB > retry {
+			retry = retryB
+		}
+		srv.tooMany(w, r, retry)
+		return
+	}
+
+	usr, sess, err := srv.D.Users.Login(ident, pw, d.Remember, r.RemoteAddr)
+	if err != nil {
+		fail(http.StatusUnauthorized, "Geçersiz kullanıcı adı veya şifre.")
+		return
+	}
+	srv.setSessionCookie(w, sess)
+	http.Redirect(w, r, d.RedirectBack, http.StatusFound)
+	_ = usr
+}
+
+func (srv *Server) registerForm(w http.ResponseWriter, r *http.Request) {
+	d := srv.base(r, "Kayıt", "", nil)
+	if d.Me != nil {
+		http.Redirect(w, r, "/", http.StatusFound)
+		return
+	}
+	if !srv.can(r, nil, perm.ScopeGlobal, 0, perm.KeyUserRegister) {
+		srv.deny(w, r, "Kayıt şu anda kapalı.")
+		return
+	}
+	if d.CSRF, _ = srv.issuePreCSRF(w); d.CSRF == "" {
+		http.Error(w, "csrf token unavailable", http.StatusInternalServerError)
+		return
+	}
+	srv.render(w, "register", d)
+}
+
+func (srv *Server) registerSubmit(w http.ResponseWriter, r *http.Request) {
+	d := srv.base(r, "Kayıt", "", nil)
+	fail := func(status int, msg string) {
+		d.FormError = msg
+		w.WriteHeader(status)
+		srv.render(w, "register", d)
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxBody)
+	if err := r.ParseForm(); err != nil || r.ContentLength > maxBody {
+		fail(http.StatusBadRequest, "İstek çözümlenemedi.")
+		return
+	}
+	if !validPreCSRF(r) {
+		fail(http.StatusForbidden, "Oturum doğrulaması başarısız (CSRF). Formu yenileyip tekrar deneyin.")
+		return
+	}
+	if !srv.can(r, nil, perm.ScopeGlobal, 0, perm.KeyUserRegister) {
+		srv.deny(w, r, "Kayıt şu anda kapalı.")
+		return
+	}
+	// 3 registrations / hour per IP — public endpoint, must be throttled.
+	if ok, retry := srv.D.RL.Allow("register", auth.HashIP(r.RemoteAddr), 3, time.Hour); !ok {
+		srv.tooMany(w, r, retry)
+		return
+	}
+	usr, err := srv.D.Users.Register(
+		r.FormValue("username"), r.FormValue("email"), r.FormValue("password"))
+	if err != nil {
+		switch {
+		case errors.Is(err, auth.ErrUsernameTaken):
+			fail(http.StatusConflict, "Bu kullanıcı adı zaten alınmış.")
+		case errors.Is(err, auth.ErrEmailTaken):
+			fail(http.StatusConflict, "Bu e-posta ile başka bir hesap var.")
+		default:
+			fail(http.StatusBadRequest, err.Error())
+		}
+		return
+	}
+	// Auto-login on success (XenForo behaviour).
+	sess, err := srv.D.Auth.CreateSession(usr.ID, true, r.RemoteAddr)
+	if err != nil {
+		fail(http.StatusInternalServerError, "Oturum kurulamadı.")
+		return
+	}
+	srv.setSessionCookie(w, sess)
+	http.Redirect(w, r, "/", http.StatusFound)
+}
+
+func (srv *Server) logout(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err == nil && csrfOK(r, r.FormValue("csrf")) {
+		if s := sessOf(r); s != nil {
+			srv.D.Auth.DestroySession(s.SID)
+		}
+	}
+	http.SetCookie(w, &http.Cookie{Name: "ignis_sid", Value: "", Path: "/", MaxAge: -1})
+	http.Redirect(w, r, "/", http.StatusFound)
+}
+
 // --- shared view helpers ---
 
-func (srv *Server) threadsFromIDs(ids []uint64) []threadRow {
+func (srv *Server) threadsFromIDs(ids []uint64, me *domain.User) []threadRow {
 	rows := make([]threadRow, 0, len(ids))
 	for _, id := range ids {
 		th, ok := srv.Repos.Threads.Get(id)
@@ -476,14 +897,12 @@ func (srv *Server) threadsFromIDs(ids []uint64) []threadRow {
 }
 
 func (srv *Server) username(uid uint64) string {
-	// M2 replaces this with real user blobs; demo names until then.
-	switch uid {
-	case 1:
-		return "admin"
-	case 2:
-		return "buraks"
-	case 3:
-		return "zerap"
+	// Real user blobs (M2). Missing user (deleted) still renders a fallback.
+	if uid == 0 {
+		return "Misafir"
+	}
+	if name := srv.D.Users.Username(uid); name != "" {
+		return name
 	}
 	return "kullanıcı #" + itoa(uid)
 }

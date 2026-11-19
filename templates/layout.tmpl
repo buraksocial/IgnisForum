@@ -16,7 +16,17 @@
 </nav>
 <div class="hdr-user">
   <button class="theme-toggle" title="Tema değiştir" onclick="(function(){var h=document.documentElement;h.dataset.colorScheme=h.dataset.colorScheme==='dark'?'light':'dark';try{localStorage.setItem('ignis-theme',h.dataset.colorScheme)}catch(e){}})()">◐</button>
+  {{if .Me}}
+  <form method="post" action="/logout" style="display:inline">
+    <input type="hidden" name="csrf" value="{{.CSRF}}">
+    <a class="btn" href="/members/{{.Me.ID}}">{{.Me.Username}}</a>
+    {{if .Admin}}<a class="btn" href="/admin">Yönetim</a>{{end}}
+    <button type="submit" class="btn">Çıkış</button>
+  </form>
+  {{else}}
   <a class="btn" href="/login">Giriş</a>
+  <a class="btn btn-primary" href="/register">Kayıt</a>
+  {{end}}
 </div>
 </div></header>
 <div class="container">

@@ -15,7 +15,9 @@ import (
 	"time"
 
 	assets "github.com/buraksocial/IgnisForum"
+	"github.com/buraksocial/IgnisForum/internal/auth"
 	"github.com/buraksocial/IgnisForum/internal/config"
+	"github.com/buraksocial/IgnisForum/internal/perm"
 	"github.com/buraksocial/IgnisForum/internal/repo"
 	"github.com/buraksocial/IgnisForum/internal/store"
 	"github.com/buraksocial/IgnisForum/internal/web"
@@ -68,6 +70,13 @@ func main() {
 
 	r := repo.New(st)
 
+	// M2 services: password/session auth, ZSET rate limiter, XF permission
+	// matrix. Both bootstraps are idempotent.
+	authSvc := auth.NewService(st)
+	rl := auth.NewRateLimiter(st)
+	users := auth.NewUserRepo(authSvc, rl)
+	perms := perm.NewEngine(st)
+
 	// Startup rebuild of derived indexes: ZSETs + FT live in RAM only (§3.4), so
 	// every boot re-derives them from primary data. It is O(live data) and runs
 	// before traffic is served (Rebuilding() would just show a banner).
@@ -78,6 +87,15 @@ func main() {
 	// forum_tree short; re-materialise it from the re-derived children index.
 	if err := r.Nodes.BuildTree(); err != nil {
 		log.Fatalf("build tree: %v", err)
+	}
+
+	// Idempotent bootstraps (both paths, seed included): stock permission
+	// matrix + demo identities so seeded posts have real authors.
+	if err := perms.Bootstrap(); err != nil {
+		log.Fatalf("perm bootstrap: %v", err)
+	}
+	if err := bootstrapUsers(authSvc, users); err != nil {
+		log.Fatalf("bootstrap users: %v", err)
 	}
 
 	if *seed {
@@ -92,7 +110,7 @@ func main() {
 	}
 
 	web.Version = version
-	rtr := web.New(st, r, assets.FS)
+	rtr := web.New(st, r, web.Deps{Auth: authSvc, Users: users, RL: rl, Perms: perms}, assets.FS)
 
 	srv := &http.Server{
 		Addr:              cfg.ListenAddr,
@@ -122,6 +140,31 @@ func main() {
 		log.Printf("store close: %v", err)
 	}
 	log.Printf("bye")
+}
+
+// bootstrapUsers creates the demo identities (idempotent — skipped when user
+// 1 exists): admin (uid 1, GroupAdmin) + two members, matching the user ids
+// the seed content references. Login: admin / ignisforum123 (M6 replaces the
+// seeded passwords via wp-sync import).
+func bootstrapUsers(authSvc *auth.Service, users *auth.UserRepo) error {
+	if _, ok := users.GetByID(1); ok {
+		return nil
+	}
+	hash, err := authSvc.HashPassword("ignisforum123")
+	if err != nil {
+		return err
+	}
+	if _, err := users.CreateUserDirect(1, "admin", "admin@ignisforum.local", hash,
+		[]uint64{perm.GroupAdmin}, 1); err != nil {
+		return err
+	}
+	for i, name := range []string{"buraks", "zerap"} {
+		if _, err := users.CreateUserDirect(uint64(2+i), name,
+			name+"@example.com", hash, []uint64{perm.GroupMember}, 0); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // seedDemo creates the demo structure (idempotent: skips when forums exist).

@@ -29,10 +29,13 @@
 {{template "pager" .}}
 {{if .CanReply}}
 <form class="reply-box" method="post" action="/t/{{.Thread.ID}}/reply">
+  <input type="hidden" name="csrf" value="{{.CSRF}}">
   <label>Hızlı Yanıt</label>
   <textarea name="message" rows="5" required placeholder="Cevabınızı yazın… ([b]kalın[/b], [quote]alıntı[/quote], [code]kod[/code])"></textarea>
   <div style="margin-top:10px"><button type="submit" class="btn btn-primary">Yanıtla</button></div>
 </form>
+{{else if not .Me}}
+<div class="reply-box muted">Yanıt yazmak için <a href="/login?next=/t/{{.Thread.ID}}">giriş yapın</a>.</div>
 {{end}}
 {{template "footer" .}}
 {{end}}
@@ -41,6 +44,7 @@
 {{template "header" .}}
 <h1>Yeni Konu — {{.Node.Title}}</h1>
 <form method="post" action="/f/{{.Node.ID}}/new" style="max-width:720px">
+  <input type="hidden" name="csrf" value="{{.CSRF}}">
   <div class="form-row"><label>Başlık</label><input type="text" name="title" required maxlength="160" placeholder="Konu başlığı"></div>
   <div class="form-row"><label>Mesaj</label><textarea name="message" rows="8" required placeholder="[b]kalın[/b], [url=https://example.com]bağlantı[/url], [code]kod[/code] desteklenir"></textarea></div>
   <div class="form-row"><button type="submit" class="btn btn-primary">Konuyu Aç</button> <a class="btn" href="/f/{{.Node.ID}}">İptal</a></div>

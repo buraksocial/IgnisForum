@@ -2,7 +2,7 @@
 {{template "header" .}}
 <div class="toolbar">
   <h1>{{.Node.Title}}</h1>
-  <a class="btn btn-primary" href="/f/{{.Node.ID}}/new">Yeni Konu</a>
+  {{if .CanThread}}<a class="btn btn-primary" href="/f/{{.Node.ID}}/new">Yeni Konu</a>{{end}}
 </div>
 {{if .Node.Description}}<p class="muted">{{.Node.Description}}</p>{{end}}
 <div class="sort-tabs">
