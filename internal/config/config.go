@@ -7,13 +7,15 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
 
 // Config is the whole application configuration.
 type Config struct {
-	// ListenAddr is the HTTP listen address, e.g. ":8090".
+	// ListenAddr is the HTTP listen address. Production defaults to loopback so
+	// the app is reachable only through a trusted reverse proxy.
 	ListenAddr string `yaml:"listen_addr"`
 	// DataDir is the IgnisDB-Go engine data directory (SSTables + WAL).
 	DataDir string `yaml:"data_dir"`
@@ -26,17 +28,20 @@ type Config struct {
 	CompactionThreshold int `yaml:"compaction_threshold"`
 	// BaseURL is used for canonical/SEO URLs.
 	BaseURL string `yaml:"base_url"`
+	// SecureCookies must be true when TLS terminates at the reverse proxy.
+	SecureCookies bool `yaml:"secure_cookies"`
 }
 
 // Default returns configuration with the fixed architecture defaults applied.
 func Default() Config {
 	return Config{
-		ListenAddr:          ":8090",
+		ListenAddr:          "127.0.0.1:8090",
 		DataDir:             "./data",
 		MemtableSize:        16 << 20, // 16 MB
 		CacheSize:           64 << 20, // 64 MB (fixed budget, §3.7)
 		CompactionThreshold: 4,
 		BaseURL:             "http://localhost:8090",
+		SecureCookies:       true,
 	}
 }
 
@@ -80,6 +85,9 @@ func (c *Config) applyEnv() {
 	}
 	if v := os.Getenv("IGNISFORUM_BASE_URL"); v != "" {
 		c.BaseURL = v
+	}
+	if v := os.Getenv("IGNISFORUM_SECURE_COOKIES"); v != "" {
+		c.SecureCookies = v == "1" || strings.EqualFold(v, "true") || strings.EqualFold(v, "yes")
 	}
 	if v := os.Getenv("IGNISFORUM_MEMTABLE_SIZE"); v != "" {
 		if n, err := strconv.ParseInt(v, 10, 64); err == nil {

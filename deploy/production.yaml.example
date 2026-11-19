@@ -1,0 +1,9 @@
+# Copy to /etc/ignisforum/config.yaml and adapt the paths for the host.
+# TLS terminates at the reverse proxy; never expose this listener directly.
+listen_addr: 127.0.0.1:8090
+data_dir: /var/lib/ignisforum/data
+memtable_size: 16777216
+cache_size: 67108864
+compaction_threshold: 4
+base_url: https://forum.tutorial.com.tr
+secure_cookies: true

@@ -5,12 +5,15 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -33,8 +36,12 @@ func main() {
 	listen := flag.String("listen", "", "override listen address (env IGNISFORUM_LISTEN)")
 	dataDir := flag.String("data", "", "override data dir (env IGNISFORUM_DATA_DIR)")
 	seed := flag.Bool("seed", false, "seed demo content (idempotent) and exit")
+	resetAdmin := flag.Bool("reset-admin-password", false, "read a new admin password from stdin and exit")
 	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
+	if *seed && *resetAdmin {
+		log.Fatal("--seed and --reset-admin-password cannot be used together")
+	}
 
 	if *showVersion {
 		fmt.Printf("ignisforum %s (built %s)\n", version, buildTime)
@@ -76,6 +83,13 @@ func main() {
 	rl := auth.NewRateLimiter(st)
 	users := auth.NewUserRepo(authSvc, rl)
 	perms := perm.NewEngine(st)
+	if admin, ok := users.GetByID(1); ok && admin.State == 0 && authSvc.VerifyPassword("ignisforum123", admin.PasswordHash) {
+		admin.State = 1
+		if err := st.PutJSON("user:1", admin); err != nil {
+			log.Fatalf("disable insecure seeded administrator: %v", err)
+		}
+		log.Printf("security: disabled administrator account with the published demo password; use --reset-admin-password")
+	}
 
 	// Startup rebuild of derived indexes: ZSETs + FT live in RAM only (§3.4), so
 	// every boot re-derives them from primary data. It is O(live data) and runs
@@ -94,11 +108,28 @@ func main() {
 	if err := perms.Bootstrap(); err != nil {
 		log.Fatalf("perm bootstrap: %v", err)
 	}
-	if err := bootstrapUsers(authSvc, users); err != nil {
-		log.Fatalf("bootstrap users: %v", err)
+	if *resetAdmin {
+		password, err := io.ReadAll(io.LimitReader(os.Stdin, 4097))
+		if err != nil {
+			log.Fatalf("read admin password: %v", err)
+		}
+		if len(password) > 4096 {
+			log.Fatal("admin password input is too long")
+		}
+		if err := users.SetPassword(1, strings.TrimRight(string(password), "\r\n")); err != nil {
+			log.Fatalf("set admin password: %v", err)
+		}
+		st.Flush()
+		if err := st.Close(); err != nil {
+			log.Fatalf("store close: %v", err)
+		}
+		log.Printf("administrator password updated")
+		return
 	}
-
 	if *seed {
+		if err := bootstrapUsers(authSvc, users); err != nil {
+			log.Fatalf("bootstrap users: %v", err)
+		}
 		if err := seedDemo(r); err != nil {
 			log.Fatalf("seed: %v", err)
 		}
@@ -110,12 +141,16 @@ func main() {
 	}
 
 	web.Version = version
-	rtr := web.New(st, r, web.Deps{Auth: authSvc, Users: users, RL: rl, Perms: perms}, assets.FS)
+	rtr := web.New(st, r, web.Deps{Auth: authSvc, Users: users, RL: rl, Perms: perms, Secure: cfg.SecureCookies}, assets.FS)
 
 	srv := &http.Server{
 		Addr:              cfg.ListenAddr,
 		Handler:           rtr,
 		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       60 * time.Second,
+		MaxHeaderBytes:    1 << 20,
 	}
 
 	go func() {
@@ -142,15 +177,18 @@ func main() {
 	log.Printf("bye")
 }
 
-// bootstrapUsers creates the demo identities (idempotent — skipped when user
-// 1 exists): admin (uid 1, GroupAdmin) + two members, matching the user ids
-// the seed content references. Login: admin / ignisforum123 (M6 replaces the
-// seeded passwords via wp-sync import).
+// bootstrapUsers creates demo identities only for the explicit --seed command.
+// The administrator password must be supplied out of band; demo member
+// passwords are random and discarded so they cannot be used as backdoor logins.
 func bootstrapUsers(authSvc *auth.Service, users *auth.UserRepo) error {
 	if _, ok := users.GetByID(1); ok {
 		return nil
 	}
-	hash, err := authSvc.HashPassword("ignisforum123")
+	password := os.Getenv("IGNISFORUM_SEED_ADMIN_PASSWORD")
+	if len(password) < 16 {
+		return fmt.Errorf("IGNISFORUM_SEED_ADMIN_PASSWORD must contain at least 16 characters")
+	}
+	hash, err := authSvc.HashPassword(password)
 	if err != nil {
 		return err
 	}
@@ -159,8 +197,16 @@ func bootstrapUsers(authSvc *auth.Service, users *auth.UserRepo) error {
 		return err
 	}
 	for i, name := range []string{"buraks", "zerap"} {
+		demoPassword := make([]byte, 32)
+		if _, err := io.ReadFull(rand.Reader, demoPassword); err != nil {
+			return err
+		}
+		demoHash, err := authSvc.HashPassword(fmt.Sprintf("%x", demoPassword))
+		if err != nil {
+			return err
+		}
 		if _, err := users.CreateUserDirect(uint64(2+i), name,
-			name+"@example.com", hash, []uint64{perm.GroupMember}, 0); err != nil {
+			name+"@example.com", demoHash, []uint64{perm.GroupMember}, 0); err != nil {
 			return err
 		}
 	}

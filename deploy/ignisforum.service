@@ -1,0 +1,37 @@
+[Unit]
+Description=IgnisForum server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ignisforum
+Group=ignisforum
+WorkingDirectory=/opt/ignisforum
+ExecStart=/opt/ignisforum/bin/ignisforum --config=/etc/ignisforum/config.yaml
+Restart=on-failure
+RestartSec=2s
+TimeoutStopSec=20s
+KillSignal=SIGTERM
+UMask=0077
+LimitNOFILE=65536
+
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectHome=true
+ProtectSystem=strict
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+LockPersonality=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+MemoryDenyWriteExecute=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+AmbientCapabilities=
+ReadWritePaths=/var/lib/ignisforum/data
+
+[Install]
+WantedBy=multi-user.target

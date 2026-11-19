@@ -172,6 +172,33 @@ func TestRegisterLogin(t *testing.T) {
 	}
 }
 
+func TestAdminPasswordRecovery(t *testing.T) {
+	s := openStore(t)
+	a := NewService(s)
+	u := NewUserRepo(a, NewRateLimiter(s))
+	oldHash, err := a.HashPassword("known-insecure-demo-password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	admin, err := u.CreateUserDirect(1, "admin", "admin@example.com", oldHash, []uint64{GroupAdmin}, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	admin.State = 1
+	if err := s.PutJSON("user:1", admin); err != nil {
+		t.Fatal(err)
+	}
+	if err := u.SetPassword(1, "a-unique-admin-password-2026"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := u.Login("admin", "a-unique-admin-password-2026", false, "127.0.0.1"); err != nil {
+		t.Fatalf("recovered admin login: %v", err)
+	}
+	if err := u.SetPassword(1, "short"); err == nil {
+		t.Fatal("accepted a short recovery password")
+	}
+}
+
 func itoaA(v uint64) string {
 	if v == 0 {
 		return "0"

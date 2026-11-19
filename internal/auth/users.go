@@ -187,6 +187,25 @@ func (u *UserRepo) CreateUserDirect(id uint64, username, email, passwordHash str
 	return usr, nil
 }
 
+// SetPassword replaces a user's password hash. It is used by the local
+// administrator recovery command and never returns or logs the plaintext.
+func (u *UserRepo) SetPassword(id uint64, password string) error {
+	if len(password) < 16 {
+		return errors.New("auth: password must contain at least 16 characters")
+	}
+	usr, ok := u.GetByID(id)
+	if !ok {
+		return ErrNotFound
+	}
+	hash, err := u.s.HashPassword(password)
+	if err != nil {
+		return err
+	}
+	usr.PasswordHash = hash
+	usr.State = 0
+	return u.s.s.PutJSON(keyUser(id), usr)
+}
+
 // Login verifies credentials and mints a session. Rate limiting is the
 // caller's responsibility around this (web layer checks both buckets); this
 // only clears the buckets on success.
