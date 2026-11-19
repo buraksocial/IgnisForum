@@ -4,6 +4,7 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/buraksocial/IgnisForum/internal/domain"
 	"github.com/buraksocial/IgnisForum/internal/store"
 )
 
@@ -98,6 +99,63 @@ func TestThreadLifecycle(t *testing.T) {
 	if len(tree.Categories) != 1 || tree.Categories[0].NodeID != cat.ID ||
 		len(tree.Categories[0].Forums) != 1 || tree.Categories[0].Forums[0].NodeID != node.ID {
 		t.Errorf("tree = %+v, want one category with the forum", tree)
+	}
+}
+
+func TestReactionToggleAndRebuild(t *testing.T) {
+	s, _ := openTestStore(t)
+	r := New(s)
+	cat, err := r.Nodes.CreateCategory("Genel", "genel", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	node, err := r.Nodes.CreateForum(cat.ID, "Sohbet", "sohbet", "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	thread, post, err := r.Threads.Create(node.ID, 1, "Konu", "Mesaj")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if got, err := r.Reactions.Toggle(post.ID, 2, "like"); err != nil || got != "like" {
+		t.Fatalf("add reaction = %q, %v", got, err)
+	}
+	if got, ok := r.Reactions.Get(post.ID, 2); !ok || got != "like" {
+		t.Fatalf("Get = %q, %v; want like", got, ok)
+	}
+	if got, err := r.Reactions.Toggle(post.ID, 2, "love"); err != nil || got != "love" {
+		t.Fatalf("change reaction = %q, %v", got, err)
+	}
+	if got, err := r.Reactions.Toggle(post.ID, 2, "love"); err != nil || got != "" {
+		t.Fatalf("remove reaction = %q, %v", got, err)
+	}
+	if _, ok := r.Reactions.Get(post.ID, 2); ok {
+		t.Fatal("reaction still present after removal")
+	}
+	if _, err := r.Reactions.Toggle(post.ID, 3, "laugh"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Reactions.Toggle(post.ID, 2, "not-allowed"); err == nil {
+		t.Fatal("invalid reaction accepted")
+	}
+
+	if err := r.Reactions.r.S.PutJSON(keyPost(post.ID), &domain.Post{ID: post.ID, ThreadID: thread.ID, UserID: post.UserID}); err != nil {
+		t.Fatal(err)
+	}
+	rep := s.RebuildContent(r.Hooks)
+	if rep.Recovered == 0 {
+		t.Fatal("rebuild recovered no records")
+	}
+	got, ok := r.Posts.Get(post.ID)
+	if !ok || got.ReactionCounts["laugh"] != 1 || len(got.ReactionCounts) != 1 {
+		t.Fatalf("rebuilt reaction counts = %#v", got.ReactionCounts)
+	}
+	if kind, ok := r.Reactions.Get(post.ID, 3); !ok || kind != "laugh" {
+		t.Fatalf("rebuilt reaction lookup = %q, %v", kind, ok)
+	}
+	if s.ZCard(userLikedKey(2)) != 0 || s.ZCard(userLikedKey(3)) != 1 {
+		t.Fatal("user reaction indexes not rebuilt")
 	}
 }
 

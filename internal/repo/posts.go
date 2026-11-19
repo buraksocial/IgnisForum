@@ -104,6 +104,10 @@ func (p *PostRepo) rebuildHook(key string, blob []byte) {
 	if err := s.DecodeJSON(blob, &post); err != nil {
 		return
 	}
+	// Reaction totals are derived from reaction primary records, which are
+	// visited after posts during rebuild.
+	post.ReactionCounts = nil
+	_ = s.PutJSON(keyPost(post.ID), &post)
 	if post.State == 2 { // deleted
 		return
 	}

@@ -94,6 +94,7 @@ func buildRouter(srv *Server) chi.Router {
 	rr.Get("/t/{threadID}", srv.thread)
 	rr.Get("/t/{threadID}/post/{postID}", srv.postRedirect)
 	rr.Post("/t/{threadID}/reply", srv.reply)
+	rr.Post("/t/{threadID}/post/{postID}/reaction", srv.react)
 
 	rr.Get("/login", srv.loginForm)
 	rr.Post("/login", srv.loginSubmit)
@@ -229,15 +230,24 @@ type threadRow struct {
 }
 
 type postRow struct {
-	ID       uint64
-	Number   int
-	UserID   uint64
-	Author   string
-	Rank     string
-	Date     time.Time
-	Rendered template.HTML
-	Edited   bool
+	ID        uint64
+	Number    int
+	UserID    uint64
+	Author    string
+	Rank      string
+	Date      time.Time
+	Rendered  template.HTML
+	Edited    bool
+	Reactions []reactionView
 }
+
+type reactionView struct {
+	Type, Label string
+	Count       int
+	Selected    bool
+}
+
+var reactionLabels = map[string]string{"like": "👍 Beğen", "love": "❤️ Sev", "laugh": "😂 Komik", "sad": "😢 Üzücü", "wow": "😮 Şaşırtıcı"}
 
 // --- base helpers ---
 
@@ -504,12 +514,20 @@ func (srv *Server) thread(w http.ResponseWriter, r *http.Request) {
 		if !ok || post.State == 2 {
 			continue
 		}
-		rows = append(rows, postRow{
+		row := postRow{
 			ID: post.ID, Number: offset + i + 1, UserID: post.UserID,
 			Author: srv.username(post.UserID), Rank: "Üye", Date: post.Date,
 			Rendered: template.HTML(post.MessageRendered),
 			Edited:   post.EditCount > 0,
-		})
+		}
+		myReaction := ""
+		if d.Me != nil {
+			myReaction, _ = srv.Repos.Reactions.Get(post.ID, d.Me.ID)
+		}
+		for _, kind := range repo.ReactionTypes {
+			row.Reactions = append(row.Reactions, reactionView{Type: kind, Label: reactionLabels[kind], Count: post.ReactionCounts[kind], Selected: kind == myReaction})
+		}
+		rows = append(rows, row)
 	}
 
 	d.Thread = th
@@ -582,6 +600,43 @@ func (srv *Server) reply(w http.ResponseWriter, r *http.Request) {
 	rank := srv.Store.ZCountUpTo(repo.ThreadPostsKey(threadID), float64(post.Date.Unix()))
 	page := (rank-1)/pageSize + 1
 	http.Redirect(w, r, fmt.Sprintf("/t/%s?p=%d#post-%s", itoa(threadID), page, itoa(post.ID)), http.StatusSeeOther)
+}
+
+func (srv *Server) react(w http.ResponseWriter, r *http.Request) {
+	threadID := parseID(chi.URLParam(r, "threadID"))
+	postID := parseID(chi.URLParam(r, "postID"))
+	me := srv.requireAuth(w, r)
+	if me == nil {
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		srv.notFound(w, r)
+		return
+	}
+	if !csrfOK(r, r.FormValue("csrf")) {
+		srv.deny(w, r, "Oturum doğrulaması başarısız (CSRF). Sayfayı yenileyip tekrar deneyin.")
+		return
+	}
+	post, ok := srv.Repos.Posts.Get(postID)
+	if !ok || post.ThreadID != threadID || post.State != 0 {
+		srv.notFound(w, r)
+		return
+	}
+	thread, ok := srv.Repos.Threads.Get(threadID)
+	if !ok || thread.Status != domain.ThreadOpen || !srv.can(r, me, perm.ScopeNode, thread.NodeID, perm.KeyForumReply) {
+		srv.deny(w, r, "Bu mesaja tepki verme izniniz yok.")
+		return
+	}
+	if ok, retry := srv.D.RL.Allow("reaction", itoa(me.ID), 30, time.Minute); !ok {
+		srv.tooMany(w, r, retry)
+		return
+	}
+	if _, err := srv.Repos.Reactions.Toggle(postID, me.ID, r.FormValue("reaction")); err != nil {
+		srv.deny(w, r, "Geçersiz tepki isteği.")
+		return
+	}
+	back := "/t/" + itoa(threadID) + "#post-" + itoa(postID)
+	http.Redirect(w, r, back, http.StatusSeeOther)
 }
 
 func (srv *Server) newThreadForm(w http.ResponseWriter, r *http.Request) {

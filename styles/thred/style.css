@@ -152,6 +152,10 @@ label { display: block; font-size: 13px; font-weight: 600; margin: 12px 0 4px; }
 .post-body pre.code { background: var(--color-code-bg); border: 1px solid var(--color-brd); border-radius: var(--radius-theme); padding: 12px; overflow-x: auto; font-family: var(--font-mono); font-size: 13px; margin: 8px 0; }
 .post-body blockquote.quote { border-left: 3px solid var(--color-brand); background: var(--color-bg-tone); padding: 8px 14px; margin: 8px 0; border-radius: 0 var(--radius-theme) var(--radius-theme) 0; }
 .post-foot { display: flex; justify-content: space-between; align-items: center; padding: 8px 16px; border-top: 1px solid var(--color-brd); font-size: 12px; color: var(--color-typ-tone); }
+.reaction-row { padding: 8px 16px 12px; display: flex; flex-wrap: wrap; gap: 6px; }
+.reaction-button { border: 1px solid var(--color-brd); border-radius: 999px; background: var(--color-bg); color: var(--color-typ); padding: 4px 10px; font: inherit; font-size: 12px; cursor: pointer; }
+.reaction-button:hover, .reaction-button.selected { border-color: var(--color-primary); color: var(--color-primary); }
+.reaction-button span { font-weight: 700; }
 
 .reply-box { border: 1px solid var(--color-brd); border-radius: var(--radius-theme); padding: 16px; margin-top: 24px; background: var(--color-bg); }
 

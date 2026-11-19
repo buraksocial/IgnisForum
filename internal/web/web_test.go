@@ -333,6 +333,43 @@ func TestCSRFRejection(t *testing.T) {
 	}
 }
 
+func TestReactionRequiresCSRFAndPersists(t *testing.T) {
+	ts, _, r, authSvc, _ := newTestServer(t)
+	c := register(t, ts, "reactor")
+	var userID uint64
+	baseURL, _ := url.Parse(ts.URL)
+	for _, cookie := range c.Jar.Cookies(baseURL) {
+		if cookie.Name == "ignis_sid" {
+			if sess := authSvc.GetSession(cookie.Value); sess != nil {
+				userID = sess.UserID
+			}
+		}
+	}
+	if userID == 0 {
+		t.Fatal("registered session missing")
+	}
+	postID := r.Posts.List(3, 0, 1)[0]
+	csrf := mustFindCSRF(t, c, ts.URL+"/t/3")
+	resp := formPost(t, c, ts.URL+"/t/3/post/"+itoa(postID)+"/reaction", url.Values{"reaction": {"like"}, "csrf": {"bad"}})
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("bad reaction CSRF = %d, want 403", resp.StatusCode)
+	}
+	if _, ok := r.Reactions.Get(postID, userID); ok {
+		t.Fatal("reaction written with invalid CSRF")
+	}
+	resp = formPost(t, c, ts.URL+"/t/3/post/"+itoa(postID)+"/reaction", url.Values{"reaction": {"like"}, "csrf": {csrf}})
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("reaction POST = %d, want 303", resp.StatusCode)
+	}
+	if kind, ok := r.Reactions.Get(postID, userID); !ok || kind != "like" {
+		t.Fatalf("reaction = %q, %v", kind, ok)
+	}
+	_, body, _ := getBody(t, c, ts.URL+"/t/3")
+	if !strings.Contains(body, "👍 Beğen <span>1</span>") {
+		t.Fatal("reaction count not rendered")
+	}
+}
+
 // TestWrongCredentials covers the unified login failure + rate-limit lockout.
 func TestWrongCredentials(t *testing.T) {
 	ts, _, _, _, _ := newTestServer(t)

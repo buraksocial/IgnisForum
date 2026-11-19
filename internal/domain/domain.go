@@ -110,6 +110,16 @@ type Post struct {
 	Version         uint64         `json:"version"`
 }
 
+// Reaction is one member's reaction to a post. A member may have at most one
+// active reaction per post; changing the Type replaces the existing reaction.
+type Reaction struct {
+	ID     uint64 `json:"id"`
+	PostID uint64 `json:"post_id"`
+	UserID uint64 `json:"user_id"`
+	Type   string `json:"type"`
+	State  int    `json:"state"` // 0 active, 2 removed
+}
+
 // LastPostRef is the denormalised "last post" card stored inside node/thread
 // blobs. It is what makes the forum index a single-blob render: no extra reads
 // per row for the last-post column.

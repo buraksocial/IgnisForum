@@ -1,5 +1,6 @@
 {{define "thread"}}
 {{template "header" .}}
+{{$page := .}}
 <div class="toolbar">
   <h1>{{.Thread.Title}}</h1>
   <a class="btn" href="/f/{{.Thread.NodeID}}">Foruma dön</a>
@@ -8,6 +9,7 @@
   {{.Thread.PostCount}} mesaj · {{.Thread.ViewCount}} görüntülenme
 </p>
 {{range .Posts}}
+{{$post := .}}
 <article class="post-block" id="post-{{.ID}}">
   <div class="post-head">
     <div class="post-avatar">{{first .Author}}</div>
@@ -21,6 +23,19 @@
   <div class="post-foot">
     {{if .Edited}}<span class="muted">Son düzenleme: {{.Author}} · {{ago .Date}}</span>{{end}}
     <a href="#post-{{.ID}}" title="Kalıcı bağlantı">#{{.Number}}</a>
+  </div>
+  <div class="reaction-row" aria-label="Mesaj tepkileri">
+    {{range .Reactions}}
+      {{if $.Me}}
+      <form method="post" action="/t/{{$page.Thread.ID}}/post/{{$post.ID}}/reaction" style="display:inline">
+        <input type="hidden" name="csrf" value="{{$page.CSRF}}">
+        <input type="hidden" name="reaction" value="{{.Type}}">
+        <button class="reaction-button{{if .Selected}} selected{{end}}" type="submit" aria-pressed="{{.Selected}}">{{.Label}} <span>{{.Count}}</span></button>
+      </form>
+      {{else if gt .Count 0}}
+      <span class="reaction-button">{{.Label}} <span>{{.Count}}</span></span>
+      {{end}}
+    {{end}}
   </div>
 </article>
 {{else}}

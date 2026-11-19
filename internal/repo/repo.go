@@ -8,6 +8,7 @@ package repo
 
 import (
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/buraksocial/IgnisForum/internal/store"
@@ -15,10 +16,12 @@ import (
 
 // Repos bundles the per-entity services over one store.
 type Repos struct {
-	S       *store.Store
-	Nodes   *NodeRepo
-	Threads *ThreadRepo
-	Posts   *PostRepo
+	S          *store.Store
+	Nodes      *NodeRepo
+	Threads    *ThreadRepo
+	Posts      *PostRepo
+	Reactions  *ReactionRepo
+	reactionMu sync.Mutex
 
 	// Hooks is the store.RebuildHooks set; the server passes it to
 	// store.RebuildContent at startup and from the admin "Rebuild Content" tool.
@@ -28,19 +31,22 @@ type Repos struct {
 // New builds the repository set and registers the rebuild hooks with the store.
 func New(s *store.Store) *Repos {
 	r := &Repos{
-		S:       s,
-		Nodes:   &NodeRepo{r: nil},
-		Threads: &ThreadRepo{r: nil},
-		Posts:   &PostRepo{r: nil},
+		S:         s,
+		Nodes:     &NodeRepo{r: nil},
+		Threads:   &ThreadRepo{r: nil},
+		Posts:     &PostRepo{r: nil},
+		Reactions: &ReactionRepo{r: nil},
 	}
 	r.Nodes.r = r
 	r.Threads.r = r
 	r.Posts.r = r
+	r.Reactions.r = r
 
 	hooks := store.NewRebuildHooks()
 	hooks.Set(store.TypeNode, r.Nodes.rebuildHook)
 	hooks.Set(store.TypeThread, r.Threads.rebuildHook)
 	hooks.Set(store.TypePost, r.Posts.rebuildHook)
+	hooks.Set(store.TypePostReaction, r.Reactions.rebuildHook)
 	r.Hooks = hooks
 	return r
 }

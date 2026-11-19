@@ -11,29 +11,32 @@ import (
 // bounds-checked index + CAS loop with ZERO allocations and no lock, and the
 // rebuild walk reads marks without touching any mutex.
 const (
-	TypeUser     = "user"
-	TypeNode     = "node"
-	TypeThread   = "thread"
-	TypePost     = "post"
-	TypeReaction = "reaction_type"
-	TypeTag      = "tag"
+	TypeUser         = "user"
+	TypeNode         = "node"
+	TypeThread       = "thread"
+	TypePost         = "post"
+	TypeReaction     = "reaction_type"
+	TypePostReaction = "reaction"
+	TypeTag          = "tag"
 
-	numTypes     = 6
-	slotUser     = 0
-	slotNode     = 1
-	slotThread   = 2
-	slotPost     = 3
-	slotReaction = 4
-	slotTag      = 5
+	numTypes         = 7
+	slotUser         = 0
+	slotNode         = 1
+	slotThread       = 2
+	slotPost         = 3
+	slotReaction     = 4
+	slotPostReaction = 5
+	slotTag          = 6
 )
 
 var typeSlots = map[string]int{
-	TypeUser:     slotUser,
-	TypeNode:     slotNode,
-	TypeThread:   slotThread,
-	TypePost:     slotPost,
-	TypeReaction: slotReaction,
-	TypeTag:      slotTag,
+	TypeUser:         slotUser,
+	TypeNode:         slotNode,
+	TypeThread:       slotThread,
+	TypePost:         slotPost,
+	TypeReaction:     slotReaction,
+	TypePostReaction: slotPostReaction,
+	TypeTag:          slotTag,
 }
 
 // allocRecord is what meta:id_alloc persists: the global high-water mark plus
