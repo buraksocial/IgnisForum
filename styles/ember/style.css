@@ -24,3 +24,5 @@
 .thread-row { padding: 14px 16px; border-bottom: 1px solid var(--color-brd); }
 .thread-row h2 { margin: 0 0 5px; font-size: 16px; }
 .thread-row p { margin: 0; }
+.poll { margin: 16px 0; padding: 16px; border: 1px solid var(--color-brd); border-radius: 10px; }
+.poll-option, .poll-result { display: block; padding: 7px 0; }

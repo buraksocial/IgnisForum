@@ -192,6 +192,7 @@ func (t *ThreadRepo) rebuildHook(key string, blob []byte) {
 	if err := t.r.S.DecodeJSON(blob, &thread); err != nil {
 		return
 	}
+	t.r.Polls.rebuildCounts(&thread)
 	if thread.Status == domain.ThreadDeleted {
 		return
 	}

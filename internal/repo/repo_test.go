@@ -172,6 +172,44 @@ func TestThreadTagsRebuildIndexes(t *testing.T) {
 	}
 }
 
+func TestPollVotesAreUniqueAndRebuildable(t *testing.T) {
+	s, _ := openTestStore(t)
+	r := New(s)
+	cat, err := r.Nodes.CreateCategory("Polls", "polls", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	forum, err := r.Nodes.CreateForum(cat.ID, "Anketler", "anketler", "", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	thread, _, err := r.Threads.Create(forum.ID, 1, "Soru", "Anket konusu")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Polls.Create(thread.ID, "Hangi dili tercih edersiniz?", []string{"Go", "Rust"}, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Polls.Vote(thread.ID, 7, []int{1}); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Polls.Vote(thread.ID, 7, []int{0}); err == nil {
+		t.Fatal("duplicate vote was accepted")
+	}
+	poll, ok := r.Polls.Get(thread.ID)
+	if !ok || poll.Options[1].Votes != 1 || poll.Options[0].Votes != 0 {
+		t.Fatalf("poll counts=%+v", poll)
+	}
+	s.RebuildContent(r.Hooks)
+	poll, ok = r.Polls.Get(thread.ID)
+	if !ok || poll.Options[1].Votes != 1 || poll.Options[0].Votes != 0 {
+		t.Fatalf("rebuilt poll counts=%+v", poll)
+	}
+	if choices, found := r.Polls.UserVote(thread.ID, 7); !found || len(choices) != 1 || choices[0] != 1 {
+		t.Fatalf("rebuilt ballot=%v, found=%v", choices, found)
+	}
+}
+
 func TestReactionToggleAndRebuild(t *testing.T) {
 	s, _ := openTestStore(t)
 	r := New(s)

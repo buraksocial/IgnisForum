@@ -106,6 +106,7 @@ func buildRouter(srv *Server) chi.Router {
 	rr.Post("/f/{nodeID}/new", srv.createThread)
 	rr.Get("/t/{threadID}", srv.thread)
 	rr.Post("/t/{threadID}/follow", srv.toggleThreadFollow)
+	rr.Post("/t/{threadID}/poll/vote", srv.votePoll)
 	rr.Get("/t/{threadID}/post/{postID}", srv.postRedirect)
 	rr.Post("/t/{threadID}/reply", srv.reply)
 	rr.Post("/t/{threadID}/post/{postID}/edit", srv.editPost)
@@ -240,6 +241,7 @@ type pageData struct {
 	ProfilePosts        []profilePostRow
 	ProfilePostCount    int
 	Tags                []tagView
+	Poll                *pollView
 }
 
 type profilePostRow struct {
@@ -251,6 +253,16 @@ type profilePostRow struct {
 type tagView struct {
 	Slug, Title string
 	ThreadCount int
+}
+type pollView struct {
+	Question                    string
+	Multiple, CanVote, HasVoted bool
+	Options                     []pollOptionView
+}
+type pollOptionView struct {
+	Index, Votes int
+	Text         string
+	Selected     bool
 }
 
 type adminNodeOption struct {
@@ -660,6 +672,22 @@ func (srv *Server) thread(w http.ResponseWriter, r *http.Request) {
 			d.Tags = append(d.Tags, tagView{Slug: tag.Slug, Title: tag.Title, ThreadCount: tag.ThreadCount})
 		}
 	}
+	if poll, found := srv.Repos.Polls.Get(threadID); found && th.PollID == threadID {
+		view := &pollView{Question: poll.Question, Multiple: poll.Multiple, CanVote: d.Me != nil && th.Status == domain.ThreadOpen}
+		selected := make(map[int]bool)
+		if d.Me != nil {
+			choices, voted := srv.Repos.Polls.UserVote(threadID, d.Me.ID)
+			view.HasVoted = voted
+			view.CanVote = view.CanVote && !voted
+			for _, choice := range choices {
+				selected[choice] = true
+			}
+		}
+		for i, option := range poll.Options {
+			view.Options = append(view.Options, pollOptionView{Index: i, Text: option.Text, Votes: option.Votes, Selected: selected[i]})
+		}
+		d.Poll = view
+	}
 
 	rows := make([]postRow, 0, len(postIDs))
 	userCache := make(map[uint64]*domain.User)
@@ -1050,6 +1078,9 @@ func (srv *Server) createThread(w http.ResponseWriter, r *http.Request) {
 	}
 	title := strings.TrimSpace(r.FormValue("title"))
 	msg := strings.TrimSpace(r.FormValue("message"))
+	pollQuestion := strings.TrimSpace(r.FormValue("poll_question"))
+	pollOptions := parsePollOptions(r.FormValue("poll_options"))
+	pollMultiple := r.FormValue("poll_multiple") == "1"
 	var tagNames []string
 	for _, rawTags := range r.Form["tags"] {
 		tagNames = append(tagNames, strings.Split(rawTags, ",")...)
@@ -1068,6 +1099,20 @@ func (srv *Server) createThread(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "başlık ve mesaj gerekli", http.StatusBadRequest)
 		return
 	}
+	if pollQuestion != "" {
+		node, ok := srv.Repos.Nodes.Get(nodeID)
+		if !ok || !node.Options.AllowPolls {
+			http.Error(w, "Bu forumda anket açılamaz.", http.StatusBadRequest)
+			return
+		}
+		if !validPollInput(pollQuestion, pollOptions) {
+			http.Error(w, "Anket 3-150 karakterlik bir soru ve 2-10 geçerli seçenek içermelidir.", http.StatusBadRequest)
+			return
+		}
+	} else if len(pollOptions) > 0 || pollMultiple {
+		http.Error(w, "Anket seçenekleri için soru da gereklidir.", http.StatusBadRequest)
+		return
+	}
 	th, _, err := srv.Repos.Threads.Create(nodeID, me.ID, title, msg)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -1077,7 +1122,81 @@ func (srv *Server) createThread(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Etiketler kaydedilemedi.", http.StatusInternalServerError)
 		return
 	}
+	if pollQuestion != "" {
+		if err := srv.Repos.Polls.Create(th.ID, pollQuestion, pollOptions, pollMultiple); err != nil {
+			http.Error(w, "Anket oluşturulamadı.", http.StatusInternalServerError)
+			return
+		}
+	}
 	http.Redirect(w, r, "/t/"+itoa(th.ID), http.StatusSeeOther)
+}
+
+func parsePollOptions(raw string) []string {
+	var options []string
+	for _, line := range strings.Split(raw, "\n") {
+		if option := strings.TrimSpace(line); option != "" {
+			options = append(options, option)
+		}
+	}
+	return options
+}
+
+func validPollInput(question string, options []string) bool {
+	if n := utf8.RuneCountInString(question); n < 3 || n > 150 || len(options) < 2 || len(options) > 10 {
+		return false
+	}
+	seen := map[string]bool{}
+	for _, option := range options {
+		option = strings.TrimSpace(option)
+		if n := utf8.RuneCountInString(option); n == 0 || n > 100 {
+			return false
+		}
+		key := strings.ToLower(option)
+		if seen[key] {
+			return false
+		}
+		seen[key] = true
+	}
+	return true
+}
+
+func (srv *Server) votePoll(w http.ResponseWriter, r *http.Request) {
+	threadID := parseID(chi.URLParam(r, "threadID"))
+	me := srv.requireAuth(w, r)
+	if me == nil {
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Geçersiz form.", http.StatusBadRequest)
+		return
+	}
+	if !csrfOK(r, r.FormValue("csrf")) {
+		srv.deny(w, r, "CSRF doğrulaması başarısız.")
+		return
+	}
+	thread, ok := srv.Repos.Threads.Get(threadID)
+	if !ok || !srv.can(r, me, perm.ScopeNode, thread.NodeID, perm.KeyForumView) {
+		srv.notFound(w, r)
+		return
+	}
+	var choices []int
+	for _, raw := range r.Form["option"] {
+		choice, err := strconv.Atoi(raw)
+		if err != nil {
+			srv.deny(w, r, "Geçersiz anket seçeneği.")
+			return
+		}
+		choices = append(choices, choice)
+	}
+	if allowed, retry := srv.D.RL.Allow("poll-vote", itoa(me.ID), 20, time.Minute); !allowed {
+		srv.tooMany(w, r, retry)
+		return
+	}
+	if err := srv.Repos.Polls.Vote(threadID, me.ID, choices); err != nil {
+		srv.deny(w, r, "Oy kaydedilemedi: "+err.Error())
+		return
+	}
+	http.Redirect(w, r, "/t/"+itoa(threadID), http.StatusSeeOther)
 }
 
 func (srv *Server) tagThreads(w http.ResponseWriter, r *http.Request) {

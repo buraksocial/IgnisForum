@@ -292,6 +292,54 @@ func TestThreadTagsAreCreatedAndBrowsable(t *testing.T) {
 	}
 }
 
+func TestPollCreationAndSingleMemberVote(t *testing.T) {
+	ts, st, repos, _, _ := newTestServer(t)
+	member := register(t, ts, "pollvoter")
+	csrf := mustFindCSRF(t, member, ts.URL+"/f/2/new")
+	denied := formPost(t, member, ts.URL+"/f/2/new", url.Values{
+		"csrf": {csrf}, "title": {"Poll disabled"}, "message": {"Poll message"},
+		"poll_question": {"Which option?"}, "poll_options": {"Alpha\nBeta"},
+	})
+	if denied.StatusCode != http.StatusBadRequest {
+		t.Fatalf("poll without forum setting status=%d", denied.StatusCode)
+	}
+	forum, ok := repos.Nodes.Get(2)
+	if !ok {
+		t.Fatal("forum fixture missing")
+	}
+	forum.Options.AllowPolls = true
+	if err := st.PutJSON("node:2", forum); err != nil {
+		t.Fatal(err)
+	}
+	csrf = mustFindCSRF(t, member, ts.URL+"/f/2/new")
+	response := formPost(t, member, ts.URL+"/f/2/new", url.Values{
+		"csrf": {csrf}, "title": {"Poll topic"}, "message": {"Poll message"},
+		"poll_question": {"Which option?"}, "poll_options": {"Alpha\nBeta"},
+	})
+	if response.StatusCode != http.StatusSeeOther {
+		t.Fatalf("thread create status=%d", response.StatusCode)
+	}
+	threadID := repos.Threads.List(2, "new", 0, 1)[0]
+	_, body, _ := getBody(t, member, ts.URL+"/t/"+itoa(threadID))
+	if !strings.Contains(body, "Which option?") || !strings.Contains(body, `name="option" value="1"`) {
+		t.Fatalf("poll form missing: %s", body)
+	}
+	csrf = mustFindCSRF(t, member, ts.URL+"/t/"+itoa(threadID))
+	vote := formPost(t, member, ts.URL+"/t/"+itoa(threadID)+"/poll/vote", url.Values{"csrf": {csrf}, "option": {"1"}})
+	if vote.StatusCode != http.StatusSeeOther {
+		t.Fatalf("vote status=%d", vote.StatusCode)
+	}
+	poll, found := repos.Polls.Get(threadID)
+	if !found || poll.Options[1].Votes != 1 {
+		t.Fatalf("vote count=%+v found=%v", poll, found)
+	}
+	csrf = mustFindCSRF(t, member, ts.URL+"/t/"+itoa(threadID))
+	second := formPost(t, member, ts.URL+"/t/"+itoa(threadID)+"/poll/vote", url.Values{"csrf": {csrf}, "option": {"0"}})
+	if second.StatusCode != http.StatusForbidden {
+		t.Fatalf("duplicate vote status=%d", second.StatusCode)
+	}
+}
+
 // jarNoRedirect: keeps cookies (so the session sticks) but reports the first
 // redirect response instead of following it — for asserting 303/302 flows.
 func jarNoRedirect() *http.Client {

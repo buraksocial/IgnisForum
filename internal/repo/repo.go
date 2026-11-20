@@ -22,6 +22,7 @@ type Repos struct {
 	Posts      *PostRepo
 	Reactions  *ReactionRepo
 	Tags       *TagRepo
+	Polls      *PollRepo
 	reactionMu sync.Mutex
 
 	// Hooks is the store.RebuildHooks set; the server passes it to
@@ -38,12 +39,14 @@ func New(s *store.Store) *Repos {
 		Posts:     &PostRepo{r: nil},
 		Reactions: &ReactionRepo{r: nil},
 		Tags:      &TagRepo{r: nil},
+		Polls:     &PollRepo{r: nil},
 	}
 	r.Nodes.r = r
 	r.Threads.r = r
 	r.Posts.r = r
 	r.Reactions.r = r
 	r.Tags.r = r
+	r.Polls.r = r
 
 	hooks := store.NewRebuildHooks()
 	hooks.Set(store.TypeNode, r.Nodes.rebuildHook)
@@ -52,6 +55,7 @@ func New(s *store.Store) *Repos {
 	hooks.Set(store.TypePostReaction, r.Reactions.rebuildHook)
 	hooks.Set(store.TypeReport, r.rebuildReportHook)
 	hooks.Set(store.TypeTag, r.Tags.rebuildHook)
+	hooks.Set(store.TypePollVote, r.Polls.rebuildVoteHook)
 	r.Hooks = hooks
 	return r
 }

@@ -147,6 +147,25 @@ type Report struct {
 	ResolvedBy uint64    `json:"resolved_by,omitempty"`
 }
 
+type Poll struct {
+	ThreadID uint64       `json:"thread_id"`
+	Question string       `json:"question"`
+	Multiple bool         `json:"multiple"`
+	Options  []PollOption `json:"options"`
+}
+
+type PollOption struct {
+	Text  string `json:"text"`
+	Votes int    `json:"votes"`
+}
+
+type PollVote struct {
+	ID       uint64 `json:"id"`
+	ThreadID uint64 `json:"thread_id"`
+	UserID   uint64 `json:"user_id"`
+	Options  []int  `json:"options"`
+}
+
 // LastPostRef is the denormalised "last post" card stored inside node/thread
 // blobs. It is what makes the forum index a single-blob render: no extra reads
 // per row for the last-post column.

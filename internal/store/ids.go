@@ -19,8 +19,9 @@ const (
 	TypePostReaction = "reaction"
 	TypeTag          = "tag"
 	TypeReport       = "report"
+	TypePollVote     = "poll_vote"
 
-	numTypes         = 8
+	numTypes         = 9
 	slotUser         = 0
 	slotNode         = 1
 	slotThread       = 2
@@ -29,6 +30,7 @@ const (
 	slotPostReaction = 5
 	slotTag          = 6
 	slotReport       = 7
+	slotPollVote     = 8
 )
 
 var typeSlots = map[string]int{
@@ -40,6 +42,7 @@ var typeSlots = map[string]int{
 	TypePostReaction: slotPostReaction,
 	TypeTag:          slotTag,
 	TypeReport:       slotReport,
+	TypePollVote:     slotPollVote,
 }
 
 // allocRecord is what meta:id_alloc persists: the global high-water mark plus

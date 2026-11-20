@@ -13,6 +13,17 @@
   {{.Thread.PostCount}} mesaj · {{.Thread.ViewCount}} görüntülenme
 </p>
 {{if .Tags}}<div class="tag-list">{{range .Tags}}<a class="tag" href="/tags/{{.Slug}}">{{.Title}}</a>{{end}}</div>{{end}}
+{{if .Poll}}<section class="poll panel">
+  <h2>{{.Poll.Question}}</h2>
+  {{if .Poll.CanVote}}<form method="post" action="/t/{{$.Thread.ID}}/poll/vote">
+    <input type="hidden" name="csrf" value="{{$.CSRF}}">
+    {{range .Poll.Options}}<label class="poll-option"><input type="{{if $.Poll.Multiple}}checkbox{{else}}radio{{end}}" name="option" value="{{.Index}}"> {{.Text}}</label>{{end}}
+    <button class="btn btn-primary" type="submit">Oy ver</button>
+  </form>{{else}}
+    {{if and $.Me .Poll.HasVoted}}<p class="muted">Oyunuz kaydedildi.</p>{{else if not $.Me}}<p><a href="/login?next=/t/{{$.Thread.ID}}">Oy vermek için giriş yapın.</a></p>{{end}}
+    {{range .Poll.Options}}<div class="poll-result">{{.Text}} <strong>{{.Votes}}</strong>{{if .Selected}} · Seçiminiz{{end}}</div>{{end}}
+  {{end}}
+</section>{{end}}
 {{range .Posts}}
 {{$post := .}}
 <article class="post-block" id="post-{{.ID}}">
@@ -89,6 +100,11 @@
   <div class="form-row"><label>Başlık</label><input type="text" name="title" required maxlength="160" placeholder="Konu başlığı"></div>
   <div class="form-row"><label>Mesaj</label><textarea name="message" rows="8" required placeholder="[b]kalın[/b], [url=https://example.com]bağlantı[/url], [code]kod[/code] desteklenir"></textarea></div>
   <div class="form-row"><label>Etiketler <small>(virgülle ayırın, en fazla 5)</small></label><input type="text" name="tags" maxlength="200" placeholder="go, performans, soru"></div>
+  {{if .Node.Options.AllowPolls}}<fieldset class="form-row"><legend>Anket (isteğe bağlı)</legend>
+    <label>Soru<input type="text" name="poll_question" maxlength="150"></label>
+    <label>Seçenekler <small>(her satıra bir seçenek, 2-10)</small><textarea name="poll_options" rows="5" maxlength="1200"></textarea></label>
+    <label><input type="checkbox" name="poll_multiple" value="1"> Birden fazla seçenek işaretlenebilsin</label>
+  </fieldset>{{end}}
   <div class="form-row"><button type="submit" class="btn btn-primary">Konuyu Aç</button> <a class="btn" href="/f/{{.Node.ID}}">İptal</a></div>
 </form>
 {{template "footer" .}}
