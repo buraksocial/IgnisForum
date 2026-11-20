@@ -101,6 +101,7 @@ func buildRouter(srv *Server) chi.Router {
 	rr.Get("/f/{nodeID}/new", srv.newThreadForm)
 	rr.Post("/f/{nodeID}/new", srv.createThread)
 	rr.Get("/t/{threadID}", srv.thread)
+	rr.Post("/t/{threadID}/follow", srv.toggleThreadFollow)
 	rr.Get("/t/{threadID}/post/{postID}", srv.postRedirect)
 	rr.Post("/t/{threadID}/reply", srv.reply)
 	rr.Post("/t/{threadID}/post/{postID}/edit", srv.editPost)
@@ -201,9 +202,10 @@ type pageData struct {
 	CanThread  bool
 
 	// thread
-	Thread   *domain.Thread
-	Posts    []postRow
-	CanReply bool
+	Thread    *domain.Thread
+	Posts     []postRow
+	CanReply  bool
+	Following bool
 
 	// search
 	Query string
@@ -634,6 +636,7 @@ func (srv *Server) thread(w http.ResponseWriter, r *http.Request) {
 
 	rows := make([]postRow, 0, len(postIDs))
 	userCache := make(map[uint64]*domain.User)
+	lastReadPostNumber := uint64(0)
 	for i, pid := range postIDs {
 		post, ok := srv.Repos.Posts.Get(pid)
 		if !ok || post.State == 2 {
@@ -674,6 +677,23 @@ func (srv *Server) thread(w http.ResponseWriter, r *http.Request) {
 			row.Reactions = append(row.Reactions, reactionView{Type: kind, Label: reactionLabels[kind], Count: post.ReactionCounts[kind], Selected: kind == myReaction})
 		}
 		rows = append(rows, row)
+		if row.Number > int(lastReadPostNumber) {
+			lastReadPostNumber = uint64(row.Number)
+		}
+	}
+	if d.Me != nil {
+		state, _ := srv.Repos.GetThreadUserState(threadID, d.Me.ID)
+		if state == nil {
+			state = &domain.ThreadUserState{UserID: d.Me.ID, ThreadID: threadID}
+		}
+		d.Following = state.Subscription == "follow"
+		if lastReadPostNumber > state.LastReadPostNumber {
+			state.LastReadPostNumber = lastReadPostNumber
+			state.LastReadAt = time.Now().UTC()
+			if err := srv.Repos.PutThreadUserState(state); err != nil {
+				log.Printf("thread read state update failed user=%d thread=%d: %v", d.Me.ID, threadID, err)
+			}
+		}
 	}
 
 	d.Thread = th
@@ -683,6 +703,49 @@ func (srv *Server) thread(w http.ResponseWriter, r *http.Request) {
 	d.PageWindow = pageWindow(page, d.TotalPages)
 	d.CanReply = th.Status == domain.ThreadOpen && srv.can(r, d.Me, perm.ScopeNode, th.NodeID, perm.KeyForumReply)
 	srv.render(w, "thread", d)
+}
+
+func (srv *Server) toggleThreadFollow(w http.ResponseWriter, r *http.Request) {
+	threadID := parseID(chi.URLParam(r, "threadID"))
+	me := srv.requireAuth(w, r)
+	if me == nil {
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "invalid form", http.StatusBadRequest)
+		return
+	}
+	if !csrfOK(r, r.FormValue("csrf")) {
+		srv.deny(w, r, "CSRF doğrulaması başarısız.")
+		return
+	}
+	thread, ok := srv.Repos.Threads.Get(threadID)
+	if !ok || thread.Status == domain.ThreadDeleted {
+		srv.notFound(w, r)
+		return
+	}
+	if !srv.can(r, me, perm.ScopeNode, thread.NodeID, perm.KeyForumView) {
+		srv.deny(w, r, "Bu konuyu takip etme izniniz yok.")
+		return
+	}
+	if ok, retry := srv.D.RL.Allow("thread-follow", itoa(me.ID), 20, time.Minute); !ok {
+		srv.tooMany(w, r, retry)
+		return
+	}
+	state, _ := srv.Repos.GetThreadUserState(threadID, me.ID)
+	if state == nil {
+		state = &domain.ThreadUserState{UserID: me.ID, ThreadID: threadID}
+	}
+	if state.Subscription == "follow" {
+		state.Subscription = ""
+	} else {
+		state.Subscription = "follow"
+	}
+	if err := srv.Repos.PutThreadUserState(state); err != nil {
+		http.Error(w, "Konu takibi güncellenemedi.", http.StatusInternalServerError)
+		return
+	}
+	http.Redirect(w, r, "/t/"+itoa(threadID), http.StatusSeeOther)
 }
 
 // postRedirect resolves a /t/{tid}/post/{pid} deep link to the owning page by

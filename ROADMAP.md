@@ -15,7 +15,9 @@ The old forum and its MariaDB data remain authoritative until cutover acceptance
 - [x] Add protected node/category/forum creation, editing, reparenting, and
   empty-only deletion with hierarchy and content-preservation checks.
 - [ ] Complete core community workflows: delete/quote, thread prefixes and
-  tags, polls, attachments, profiles, notifications, private messages, and follows.
+  tags, polls, attachments, profiles, notifications, and private messages.
+- [x] Add member thread follow/unfollow controls and persist per-thread read
+  progress when an authenticated member views a page.
 - [x] Add time-limited author post editing plus administrator editing, with
   CSRF/rate-limit checks and full-text index refresh.
 - [x] Add member post reports, a rebuildable open-report queue, and administrator
@@ -34,9 +36,9 @@ The old forum and its MariaDB data remain authoritative until cutover acceptance
 - [x] Import validated Flarum profile avatars into isolated staging, serve them
   through a constrained image route, and include them in offline backup/restore.
 - [ ] Add post uploads/attachments migration and close the remaining Flarum permission,
-  moderator-role, member-facing read/follow workflow, and visibility-semantic gaps
-  before migration acceptance. `discussion_user` read/subscription records are
-  preserved, but the workflow is not yet exposed. Unsupported moderator roles are
+  moderator-role, follow-notification, and visibility-semantic gaps before migration
+  acceptance. `discussion_user` read/subscription records are preserved and
+  surfaced in the basic member workflow. Unsupported moderator roles are
   omitted rather than downgraded to members, avoiding accidental privilege broadening.
 - [x] Add a repeatable-read, read-only Flarum snapshot exporter with an explicit
   table allowlist, protected output file, and per-table source counts.

@@ -15,6 +15,7 @@ import (
 
 	assets "github.com/buraksocial/IgnisForum"
 	"github.com/buraksocial/IgnisForum/internal/auth"
+	"github.com/buraksocial/IgnisForum/internal/domain"
 	"github.com/buraksocial/IgnisForum/internal/perm"
 	"github.com/buraksocial/IgnisForum/internal/repo"
 	"github.com/buraksocial/IgnisForum/internal/store"
@@ -121,6 +122,67 @@ func TestAvatarFileServesOnlySafeImageNames(t *testing.T) {
 		if got := serve(name).Code; got != http.StatusNotFound {
 			t.Errorf("avatar %q status=%d, want 404", name, got)
 		}
+	}
+}
+
+func TestThreadFollowAndViewUpdateMemberState(t *testing.T) {
+	ts, s, repos, _, _ := newTestServer(t)
+	member := register(t, ts, "threadfollower")
+	users := auth.NewUserRepo(auth.NewService(s), auth.NewRateLimiter(s))
+	var user *domain.User
+	for uid := uint64(1); uid <= 10; uid++ {
+		candidate, ok := users.GetByID(uid)
+		if ok && candidate.Username == "threadfollower" {
+			user = candidate
+			break
+		}
+	}
+	if user == nil {
+		t.Fatal("registered fixture user missing")
+	}
+	threadIDs := repos.Threads.List(2, "last", 0, 10)
+	if len(threadIDs) == 0 {
+		t.Fatal("fixture thread missing")
+	}
+	thread, ok := repos.Threads.Get(threadIDs[0])
+	if !ok {
+		t.Fatal("fixture thread missing")
+	}
+	threadURL := ts.URL + "/t/" + itoa(thread.ID)
+	code, body, _ := getBody(t, member, threadURL)
+	if code != http.StatusOK || !strings.Contains(body, "Konuyu takip et") {
+		t.Fatalf("thread page code=%d", code)
+	}
+	state, ok := repos.GetThreadUserState(thread.ID, user.ID)
+	if !ok || state.LastReadPostNumber == 0 || state.LastReadAt.IsZero() {
+		t.Fatalf("view did not persist read state: %+v found=%v", state, ok)
+	}
+	csrf := preCSRF(t, member, threadURL)
+	followURL := threadURL + "/follow"
+	response := formPost(t, member, followURL, url.Values{"csrf": {csrf}})
+	if response.StatusCode != http.StatusSeeOther {
+		t.Fatalf("follow status=%d", response.StatusCode)
+	}
+	state, ok = repos.GetThreadUserState(thread.ID, user.ID)
+	if !ok || state.Subscription != "follow" {
+		t.Fatalf("follow state=%+v found=%v", state, ok)
+	}
+	code, body, _ = getBody(t, member, threadURL)
+	if code != http.StatusOK || !strings.Contains(body, "Takip ediliyor") {
+		t.Fatalf("follow page code=%d", code)
+	}
+	csrf = preCSRF(t, member, threadURL)
+	response = formPost(t, member, followURL, url.Values{"csrf": {csrf}})
+	if response.StatusCode != http.StatusSeeOther {
+		t.Fatalf("unfollow status=%d", response.StatusCode)
+	}
+	state, ok = repos.GetThreadUserState(thread.ID, user.ID)
+	if !ok || state.Subscription != "" {
+		t.Fatalf("unfollow state=%+v found=%v", state, ok)
+	}
+	response = formPost(t, member, followURL, url.Values{})
+	if response.StatusCode != http.StatusForbidden {
+		t.Fatalf("follow without CSRF status=%d", response.StatusCode)
 	}
 }
 

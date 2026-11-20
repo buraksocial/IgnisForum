@@ -77,8 +77,9 @@ this avatar directory.
 
 `discussion_user` rows with valid imported users/discussions now retain their
 last-read timestamp, last-read post number, and `follow`/`ignore` subscription
-state as primary IgnisForum records. This preserves migration data, but the
-member-facing unread/follow workflows are not yet exposed; the records must not
+state as primary IgnisForum records. Authenticated thread views advance the
+member's read position and thread pages expose a CSRF-protected follow/unfollow
+control. Follow notifications are not implemented yet; preserved state must not
 be treated as proof that notification parity is complete.
 
 ## Offline backup and restore rehearsal
