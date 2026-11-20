@@ -90,6 +90,41 @@ func TestThreadLifecycle(t *testing.T) {
 	if len(hits) != 1 || hits[0].DocID != wantDoc {
 		t.Errorf("FTSearch = %+v, want one hit %s", hits, wantDoc)
 	}
+	if err := r.Posts.DeleteReply(post.ID); err == nil {
+		t.Fatal("first post deletion was accepted")
+	}
+	if err := r.Posts.DeleteReply(rep.ID); err != nil {
+		t.Fatalf("delete reply: %v", err)
+	}
+	if got, ok := r.Posts.Get(rep.ID); !ok || got.State != 2 {
+		t.Fatalf("deleted post state=%+v found=%v", got, ok)
+	}
+	if ids := r.Posts.List(th.ID, 0, 10); len(ids) != 1 || ids[0] != post.ID {
+		t.Fatalf("post index after deletion = %v", ids)
+	}
+	if hits := s.FTSearch("yanıt", 10); len(hits) != 0 {
+		t.Fatalf("deleted reply remained searchable: %+v", hits)
+	}
+	got, _ = r.Threads.Get(th.ID)
+	fn, _ = r.Nodes.Get(node.ID)
+	if got.PostCount != 1 || got.LastPost.PostID != post.ID || fn.PostCount != 1 || fn.LastPost.PostID != post.ID {
+		t.Fatalf("counters after deletion: thread=%+v forum=%+v", got, fn)
+	}
+	// Startup repair must rederive thread/node counts and last-post pointers
+	// from active primaries after a crash between primary and counter writes.
+	got.PostCount = 77
+	got.LastPost = &domain.LastPostRef{PostID: rep.ID}
+	if err := s.PutJSON(keyThread(th.ID), got); err != nil {
+		t.Fatal(err)
+	}
+	s.RebuildContent(r.Hooks)
+	if err := r.Nodes.RebuildContentCounts(); err != nil {
+		t.Fatal(err)
+	}
+	got, _ = r.Threads.Get(th.ID)
+	if got.PostCount != 1 || got.LastPost.PostID != post.ID {
+		t.Fatalf("rebuilt thread state=%+v", got)
+	}
 
 	// Tree blob: category → forum visible.
 	tree, err := r.Nodes.LoadTree()

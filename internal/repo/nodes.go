@@ -235,6 +235,8 @@ func (n *NodeRepo) RebuildContentCounts() error {
 		}
 	}
 	threadNodes := make(map[uint64]uint64)
+	threadCounts := make(map[uint64]int)
+	threadLastPosts := make(map[uint64]*domain.LastPostRef)
 	for id := uint64(1); id <= n.r.S.MaxID(store.TypeThread); id++ {
 		thread, ok := n.r.Threads.Get(id)
 		if !ok || thread.Status == domain.ThreadDeleted {
@@ -261,6 +263,10 @@ func (n *NodeRepo) RebuildContentCounts() error {
 		if !exists {
 			continue
 		}
+		threadCounts[post.ThreadID]++
+		if last := threadLastPosts[post.ThreadID]; last == nil || post.Date.After(last.T) {
+			threadLastPosts[post.ThreadID] = &domain.LastPostRef{T: post.Date, PostID: post.ID, UserID: post.UserID}
+		}
 		node.PostCount++
 		if node.LastPost == nil || post.Date.After(node.LastPost.T) {
 			node.LastPost = &domain.LastPostRef{T: post.Date, PostID: post.ID, UserID: post.UserID}
@@ -268,6 +274,21 @@ func (n *NodeRepo) RebuildContentCounts() error {
 		if err := n.r.S.PutJSON(keyNode(nodeID), node); err != nil {
 			return err
 		}
+	}
+	for threadID := range threadNodes {
+		thread, ok := n.r.Threads.Get(threadID)
+		if !ok {
+			continue
+		}
+		thread.PostCount = threadCounts[threadID]
+		thread.LastPost = threadLastPosts[threadID]
+		if thread.LastPost == nil {
+			thread.LastPost = &domain.LastPostRef{T: thread.Date, PostID: thread.FirstPostID, UserID: thread.UserID}
+		}
+		if err := n.r.S.PutJSON(keyThread(threadID), thread); err != nil {
+			return err
+		}
+		n.r.Threads.indexThread(thread)
 	}
 	return nil
 }

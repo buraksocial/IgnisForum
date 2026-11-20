@@ -197,6 +197,42 @@ func TestQuotePrefillsReplyOnlyFromSameThread(t *testing.T) {
 	}
 }
 
+func TestMemberCanSoftDeleteOwnReplyButNotFirstPost(t *testing.T) {
+	ts, _, repos, _, _ := newTestServer(t)
+	member := register(t, ts, "postdeleter")
+	thread, ok := repos.Threads.Get(3)
+	if !ok {
+		t.Fatal("fixture thread missing")
+	}
+	csrf := preCSRF(t, member, ts.URL+"/t/3")
+	response := formPost(t, member, ts.URL+"/t/3/reply", url.Values{"csrf": {csrf}, "message": {"reply to delete"}})
+	if response.StatusCode != http.StatusSeeOther {
+		t.Fatalf("reply status=%d", response.StatusCode)
+	}
+	postIDs := repos.Posts.List(thread.ID, 0, 10)
+	newReplyID := postIDs[len(postIDs)-1]
+	csrf = preCSRF(t, member, ts.URL+"/t/3")
+	bad := formPost(t, member, ts.URL+"/t/3/post/"+itoa(newReplyID)+"/delete", url.Values{"csrf": {"invalid"}})
+	if bad.StatusCode != http.StatusForbidden {
+		t.Fatalf("delete with bad CSRF status=%d", bad.StatusCode)
+	}
+	if post, ok := repos.Posts.Get(newReplyID); !ok || post.State == 2 {
+		t.Fatal("CSRF failure changed the post")
+	}
+	deleted := formPost(t, member, ts.URL+"/t/3/post/"+itoa(newReplyID)+"/delete", url.Values{"csrf": {csrf}})
+	if deleted.StatusCode != http.StatusSeeOther {
+		t.Fatalf("delete status=%d", deleted.StatusCode)
+	}
+	if post, ok := repos.Posts.Get(newReplyID); !ok || post.State != 2 {
+		t.Fatalf("post not soft-deleted: %+v found=%v", post, ok)
+	}
+	csrf = preCSRF(t, member, ts.URL+"/t/3")
+	first := formPost(t, member, ts.URL+"/t/3/post/"+itoa(thread.FirstPostID)+"/delete", url.Values{"csrf": {csrf}})
+	if first.StatusCode != http.StatusForbidden {
+		t.Fatalf("first post deletion status=%d", first.StatusCode)
+	}
+}
+
 // jarNoRedirect: keeps cookies (so the session sticks) but reports the first
 // redirect response instead of following it — for asserting 303/302 flows.
 func jarNoRedirect() *http.Client {

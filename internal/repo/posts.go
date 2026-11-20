@@ -86,6 +86,69 @@ func (p *PostRepo) Edit(id uint64, message string) (*domain.Post, error) {
 	return post, nil
 }
 
+// DeleteReply soft-deletes a reply without allowing the first post (which owns
+// the discussion) to be orphaned. Primary state is written before derived
+// indexes so a restart can repair an interrupted index update.
+func (p *PostRepo) DeleteReply(id uint64) error {
+	post, ok := p.Get(id)
+	if !ok || post.State != 0 {
+		return fmt.Errorf("post %d not found or already deleted", id)
+	}
+	thread, ok := p.r.Threads.Get(post.ThreadID)
+	if !ok || thread.FirstPostID == id {
+		return fmt.Errorf("the first post of a discussion cannot be deleted")
+	}
+	post.State = 2
+	post.Version++
+	if err := p.r.S.PutJSON(keyPost(id), post); err != nil {
+		return err
+	}
+	p.r.S.ZRem(ThreadPostsKey(post.ThreadID), id)
+	p.r.S.ZRem(IdxLatestPosts, id)
+	p.r.S.ZRem(userPostsIdx(post.UserID), id)
+	p.r.S.FTRemove(fmt.Sprintf("post:%d", id))
+
+	thread.PostCount--
+	if thread.PostCount < 1 {
+		thread.PostCount = 1
+	}
+	if thread.LastPost != nil && thread.LastPost.PostID == id {
+		count := p.r.S.ZCard(ThreadPostsKey(thread.ID))
+		if count > 0 {
+			ids := p.r.S.ZOldest(ThreadPostsKey(thread.ID), count-1, 1)
+			if len(ids) == 1 {
+				if last, found := p.Get(ids[0]); found {
+					thread.LastPost = &domain.LastPostRef{T: last.Date, PostID: last.ID, UserID: last.UserID}
+				}
+			}
+		}
+	}
+	thread.Version++
+	if err := p.r.S.PutJSON(keyThread(thread.ID), thread); err != nil {
+		return err
+	}
+	p.r.Threads.indexThread(thread)
+
+	if node, found := p.r.Nodes.Get(thread.NodeID); found {
+		if node.PostCount > 0 {
+			node.PostCount--
+		}
+		if node.LastPost != nil && node.LastPost.PostID == id {
+			latest := p.r.Threads.List(node.ID, "last", 0, 1)
+			node.LastPost = nil
+			if len(latest) == 1 {
+				if lastThread, found := p.r.Threads.Get(latest[0]); found {
+					node.LastPost = lastThread.LastPost
+				}
+			}
+		}
+		if err := p.r.S.PutJSON(keyNode(node.ID), node); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // List returns a page of post IDs in a thread, oldest first (chronological).
 func (p *PostRepo) List(threadID uint64, offset, n int) []uint64 {
 	return p.r.S.ZOldest(ThreadPostsKey(threadID), offset, n)

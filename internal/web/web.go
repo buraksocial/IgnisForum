@@ -106,6 +106,7 @@ func buildRouter(srv *Server) chi.Router {
 	rr.Get("/t/{threadID}/post/{postID}", srv.postRedirect)
 	rr.Post("/t/{threadID}/reply", srv.reply)
 	rr.Post("/t/{threadID}/post/{postID}/edit", srv.editPost)
+	rr.Post("/t/{threadID}/post/{postID}/delete", srv.deletePost)
 	rr.Post("/t/{threadID}/post/{postID}/report", srv.reportPost)
 	rr.Post("/t/{threadID}/post/{postID}/reaction", srv.react)
 
@@ -304,6 +305,7 @@ type postRow struct {
 	Rendered  template.HTML
 	Edited    bool
 	CanEdit   bool
+	CanDelete bool
 	Raw       string
 	CanReport bool
 	Reactions []reactionView
@@ -669,6 +671,7 @@ func (srv *Server) thread(w http.ResponseWriter, r *http.Request) {
 		}
 		if d.Me != nil {
 			row.CanEdit = d.Me.ID == post.UserID && time.Since(post.Date) <= 15*time.Minute || srv.can(r, d.Me, perm.ScopeGlobal, 0, perm.KeyAdmin)
+			row.CanDelete = post.ID != th.FirstPostID && (d.Me.ID == post.UserID && time.Since(post.Date) <= 15*time.Minute || srv.can(r, d.Me, perm.ScopeGlobal, 0, perm.KeyAdmin))
 			row.CanReport = d.Me.ID != post.UserID
 		}
 		myReaction := ""
@@ -900,6 +903,46 @@ func (srv *Server) reportPost(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = report
 	http.Redirect(w, r, "/t/"+itoa(threadID)+"#post-"+itoa(postID), http.StatusSeeOther)
+}
+
+func (srv *Server) deletePost(w http.ResponseWriter, r *http.Request) {
+	threadID, postID := parseID(chi.URLParam(r, "threadID")), parseID(chi.URLParam(r, "postID"))
+	me := srv.requireAuth(w, r)
+	if me == nil {
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "invalid form", http.StatusBadRequest)
+		return
+	}
+	if !csrfOK(r, r.FormValue("csrf")) {
+		srv.deny(w, r, "CSRF doğrulaması başarısız.")
+		return
+	}
+	post, ok := srv.Repos.Posts.Get(postID)
+	thread, threadOK := srv.Repos.Threads.Get(threadID)
+	if !ok || !threadOK || post.ThreadID != threadID || post.State != 0 {
+		srv.notFound(w, r)
+		return
+	}
+	if post.ID == thread.FirstPostID {
+		srv.deny(w, r, "Konunun ilk mesajı silinemez.")
+		return
+	}
+	isAdmin := srv.can(r, me, perm.ScopeGlobal, 0, perm.KeyAdmin)
+	if !isAdmin && (post.UserID != me.ID || time.Since(post.Date) > 15*time.Minute) {
+		srv.deny(w, r, "Bu mesajı silme yetkiniz yok.")
+		return
+	}
+	if allowed, retry := srv.D.RL.Allow("delete-post", itoa(me.ID), 10, time.Minute); !allowed {
+		srv.tooMany(w, r, retry)
+		return
+	}
+	if err := srv.Repos.Posts.DeleteReply(postID); err != nil {
+		http.Error(w, "Mesaj silinemedi.", http.StatusConflict)
+		return
+	}
+	http.Redirect(w, r, "/t/"+itoa(threadID), http.StatusSeeOther)
 }
 
 func (srv *Server) react(w http.ResponseWriter, r *http.Request) {

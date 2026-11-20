@@ -35,6 +35,18 @@
         <button class="btn btn-primary" type="submit">Değişiklikleri kaydet</button>
       </form>
     </details>{{end}}
+    {{if .CanDelete}}<details class="post-delete"><summary>Sil</summary>
+      <form method="post" action="/t/{{$page.Thread.ID}}/post/{{.ID}}/delete">
+        <input type="hidden" name="csrf" value="{{$page.CSRF}}">
+        <button class="btn" type="submit">Bu yanıtı sil</button>
+      </form>
+    </details>{{end}}
+    {{if .CanDelete}}<details class="post-delete"><summary>Sil</summary>
+      <form method="post" action="/t/{{$page.Thread.ID}}/post/{{.ID}}/delete">
+        <input type="hidden" name="csrf" value="{{$page.CSRF}}">
+        <button class="btn" type="submit">Bu yanıtı sil</button>
+      </form>
+    </details>{{end}}
     {{if .CanReport}}<details class="post-report"><summary>Raporla</summary>
       <form method="post" action="/t/{{$page.Thread.ID}}/post/{{.ID}}/report">
         <input type="hidden" name="csrf" value="{{$page.CSRF}}">
