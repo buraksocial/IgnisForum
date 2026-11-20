@@ -83,6 +83,14 @@ type DiscussionTagRow struct {
 	TagID        uint64 `json:"tag_id"`
 }
 
+type DiscussionUserRow struct {
+	UserID             uint64  `json:"user_id"`
+	DiscussionID       uint64  `json:"discussion_id"`
+	LastReadAt         *string `json:"last_read_at"`
+	LastReadPostNumber *uint64 `json:"last_read_post_number"`
+	Subscription       *string `json:"subscription"`
+}
+
 type LikeRow struct {
 	PostID uint64 `json:"post_id"`
 	UserID uint64 `json:"user_id"`

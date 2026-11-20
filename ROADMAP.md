@@ -34,9 +34,10 @@ The old forum and its MariaDB data remain authoritative until cutover acceptance
 - [x] Import validated Flarum profile avatars into isolated staging, serve them
   through a constrained image route, and include them in offline backup/restore.
 - [ ] Add post uploads/attachments migration and close the remaining Flarum permission,
-  moderator-role, read/subscription, and visibility-semantic gaps before migration
-  acceptance. Unsupported moderator roles are now omitted rather than downgraded
-  to members, avoiding accidental permission broadening.
+  moderator-role, member-facing read/follow workflow, and visibility-semantic gaps
+  before migration acceptance. `discussion_user` read/subscription records are
+  preserved, but the workflow is not yet exposed. Unsupported moderator roles are
+  omitted rather than downgraded to members, avoiding accidental privilege broadening.
 - [x] Add a repeatable-read, read-only Flarum snapshot exporter with an explicit
   table allowlist, protected output file, and per-table source counts.
 - [x] Verify Flarum PHP `$2y$` bcrypt hashes and upgrade accounts to Argon2id

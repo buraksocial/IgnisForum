@@ -113,6 +113,16 @@ type Post struct {
 	Version         uint64         `json:"version"`
 }
 
+// ThreadUserState preserves per-member read position and subscription settings.
+// Subscription is empty, "follow", or "ignore" (Flarum semantics).
+type ThreadUserState struct {
+	UserID             uint64    `json:"user_id"`
+	ThreadID           uint64    `json:"thread_id"`
+	LastReadAt         time.Time `json:"last_read_at,omitempty"`
+	LastReadPostNumber uint64    `json:"last_read_post_number,omitempty"`
+	Subscription       string    `json:"subscription,omitempty"`
+}
+
 // Reaction is one member's reaction to a post. A member may have at most one
 // active reaction per post; changing the Type replaces the existing reaction.
 type Reaction struct {

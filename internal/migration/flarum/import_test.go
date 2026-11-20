@@ -50,10 +50,11 @@ func TestImportPreservesSourceIDsSanitizesAndReplays(t *testing.T) {
 			{"id": 200, "discussion_id": 100, "number": 1, "created_at": "2023-02-01 00:00:00", "user_id": 5, "type": "comment", "content": "<p>Hello <strong>world</strong><script>evil()</script></p>", "edited_at": nil, "edited_user_id": nil, "hidden_at": nil, "hidden_user_id": nil, "is_private": 0, "is_approved": 1},
 			{"id": 201, "discussion_id": 100, "number": 2, "created_at": "2023-02-02 00:00:00", "user_id": 5, "type": "comment", "content": "<p>Reply</p>", "edited_at": nil, "edited_user_id": nil, "hidden_at": nil, "hidden_user_id": nil, "is_private": 0, "is_approved": 1},
 		},
-		"tags":           {{"id": 3, "name": "General", "slug": "general", "description": "General topics", "color": nil, "position": 0, "parent_id": nil, "is_restricted": 0, "is_hidden": 0, "created_at": nil}},
-		"discussion_tag": {{"discussion_id": 100, "tag_id": 3, "created_at": nil}},
-		"post_likes":     {{"post_id": 201, "user_id": 5, "created_at": nil}},
-		"flags":          {}, "notifications": {},
+		"tags":            {{"id": 3, "name": "General", "slug": "general", "description": "General topics", "color": nil, "position": 0, "parent_id": nil, "is_restricted": 0, "is_hidden": 0, "created_at": nil}},
+		"discussion_tag":  {{"discussion_id": 100, "tag_id": 3, "created_at": nil}},
+		"discussion_user": {{"user_id": 5, "discussion_id": 100, "last_read_at": "2023-02-02 00:00:00", "last_read_post_number": 1, "subscription": "follow"}},
+		"post_likes":      {{"post_id": 201, "user_id": 5, "created_at": nil}},
+		"flags":           {}, "notifications": {},
 	})
 	digest := sha256.Sum256([]byte("fixture"))
 	avatarDir := filepath.Join(t.TempDir(), "uploads", "avatars")
@@ -61,7 +62,7 @@ func TestImportPreservesSourceIDsSanitizesAndReplays(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.Tables["users"].Imported != 1 || report.Tables["discussions"].Imported != 1 || report.Tables["posts"].Imported != 2 || report.Tables["post_likes"].Imported != 1 || report.Tables["group_permission"].Imported != 2 {
+	if report.Tables["users"].Imported != 1 || report.Tables["discussions"].Imported != 1 || report.Tables["posts"].Imported != 2 || report.Tables["post_likes"].Imported != 1 || report.Tables["group_permission"].Imported != 2 || report.Tables["discussion_user"].Imported != 1 {
 		t.Fatalf("unexpected import counts: %+v", report.Tables)
 	}
 	migratedPerms := perm.NewEngine(s)
@@ -81,6 +82,10 @@ func TestImportPreservesSourceIDsSanitizesAndReplays(t *testing.T) {
 	thread, ok := r.Threads.Get(100)
 	if !ok || thread.FirstPostID != 200 || thread.NodeID != 3 || len(thread.TagIDs) != 1 || thread.TagIDs[0] != 3 {
 		t.Fatalf("imported thread = %+v, found=%v", thread, ok)
+	}
+	state, ok := r.GetThreadUserState(100, 5)
+	if !ok || state.Subscription != "follow" || state.LastReadPostNumber != 1 || state.LastReadAt.IsZero() {
+		t.Fatalf("imported discussion-user state = %+v, found=%v", state, ok)
 	}
 	first, ok := r.Posts.Get(200)
 	if !ok || first.MessageRaw == "" || !strings.Contains(first.MessageRendered, "<strong>world</strong>") || strings.Contains(first.MessageRendered, "script") {

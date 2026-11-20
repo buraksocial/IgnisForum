@@ -128,6 +128,13 @@ func Import(snapshot *Snapshot, digest [32]byte, st *store.Store, repos *repo.Re
 	if err != nil {
 		return nil, err
 	}
+	var discussionUserRows []DiscussionUserRow
+	if _, exists := snapshot.Tables["discussion_user"]; exists {
+		discussionUserRows, err = DecodeTable[DiscussionUserRow](snapshot, "discussion_user")
+		if err != nil {
+			return nil, err
+		}
+	}
 	likeRows, err := DecodeTable[LikeRow](snapshot, "post_likes")
 	if err != nil {
 		return nil, err
@@ -468,17 +475,54 @@ func Import(snapshot *Snapshot, digest [32]byte, st *store.Store, repos *repo.Re
 		}
 		report.Tables["flags"] = increment(report.Tables["flags"])
 	}
+	for _, sourceState := range discussionUserRows {
+		if sourceState.UserID == 0 || sourceState.DiscussionID == 0 {
+			report.Exceptions = append(report.Exceptions, Exception{Table: "discussion_user", SourceID: sourceState.UserID, Reason: "read/subscription state has an invalid user or discussion ID"})
+			continue
+		}
+		if _, ok := users.GetByID(sourceState.UserID); !ok {
+			report.Exceptions = append(report.Exceptions, Exception{Table: "discussion_user", SourceID: sourceState.UserID, Reason: fmt.Sprintf("state references unmapped user %d", sourceState.UserID)})
+			continue
+		}
+		if _, ok := repos.Threads.Get(sourceState.DiscussionID); !ok {
+			report.Exceptions = append(report.Exceptions, Exception{Table: "discussion_user", SourceID: sourceState.UserID, Reason: fmt.Sprintf("state references unmapped discussion %d", sourceState.DiscussionID)})
+			continue
+		}
+		subscription := ""
+		if sourceState.Subscription != nil {
+			subscription = strings.ToLower(strings.TrimSpace(*sourceState.Subscription))
+		}
+		if subscription != "" && subscription != "follow" && subscription != "ignore" {
+			report.Exceptions = append(report.Exceptions, Exception{Table: "discussion_user", SourceID: sourceState.UserID, Reason: "unsupported discussion subscription value"})
+			continue
+		}
+		state := &domain.ThreadUserState{UserID: sourceState.UserID, ThreadID: sourceState.DiscussionID, Subscription: subscription}
+		if sourceState.LastReadAt != nil {
+			if strings.TrimSpace(*sourceState.LastReadAt) != "" {
+				lastRead, ok := parseOptionalTime(sourceState.LastReadAt)
+				if !ok {
+					report.Exceptions = append(report.Exceptions, Exception{Table: "discussion_user", SourceID: sourceState.UserID, Reason: "invalid last-read timestamp"})
+					continue
+				}
+				state.LastReadAt = lastRead
+			}
+		}
+		if sourceState.LastReadPostNumber != nil {
+			state.LastReadPostNumber = *sourceState.LastReadPostNumber
+		}
+		if err := repos.PutThreadUserState(state); err != nil {
+			return nil, fmt.Errorf("import discussion user state %d/%d: %w", state.ThreadID, state.UserID, err)
+		}
+		report.Tables["discussion_user"] = increment(report.Tables["discussion_user"])
+	}
 
 	// These source relations have no current IgnisForum representation. Preserve
 	// their omission in the report instead of silently implying parity.
-	for _, table := range []string{"discussion_user", "post_user", "post_mentions_group", "post_mentions_post", "post_mentions_tag", "post_mentions_user", "tag_user", "notifications"} {
+	for _, table := range []string{"post_user", "post_mentions_group", "post_mentions_post", "post_mentions_tag", "post_mentions_user", "tag_user", "notifications"} {
 		count := report.Tables[table].Source
 		if count > 0 {
 			report.Exceptions = append(report.Exceptions, Exception{Table: table, Reason: fmt.Sprintf("%d source rows are not represented by IgnisForum", count)})
 		}
-	}
-	if _, ok := snapshot.Tables["discussion_user"]; ok {
-		report.Tables["discussion_user"] = TableCount{Source: report.Tables["discussion_user"].Source}
 	}
 	st.RebuildContent(repos.Hooks)
 	if err := repos.Nodes.RebuildContentCounts(); err != nil {

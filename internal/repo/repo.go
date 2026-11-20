@@ -93,6 +93,9 @@ func childrenOf(parent uint64) string  { return fmt.Sprintf("%s:%d", IdxChildren
 func keyNode(id uint64) string   { return fmt.Sprintf("node:%d", id) }
 func keyThread(id uint64) string { return fmt.Sprintf("thread:%d", id) }
 func keyPost(id uint64) string   { return fmt.Sprintf("post:%d", id) }
+func keyThreadUserState(threadID, userID uint64) string {
+	return fmt.Sprintf("thread_user:%d:%d", threadID, userID)
+}
 
 // ts converts time to a float64 score (unix seconds; exact for our range).
 func ts(t time.Time) float64 { return float64(t.Unix()) }

@@ -75,6 +75,12 @@ directory (default: `<data_dir>/uploads/avatars`) with fixed image content
 types and `nosniff` protection. The offline backup/restore format includes
 this avatar directory.
 
+`discussion_user` rows with valid imported users/discussions now retain their
+last-read timestamp, last-read post number, and `follow`/`ignore` subscription
+state as primary IgnisForum records. This preserves migration data, but the
+member-facing unread/follow workflows are not yet exposed; the records must not
+be treated as proof that notification parity is complete.
+
 ## Offline backup and restore rehearsal
 
 The engine is single-writer and stores primary records in SSTables/WAL; forum
