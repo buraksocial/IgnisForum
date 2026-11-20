@@ -153,3 +153,12 @@ a caller-provided bearer token without logging it. It verifies the expected
 status and an optional response marker. It does not prove database compatibility
 or forum semantics; callers must add authenticated smoke assertions and keep
 the endpoint in the local promotion environment.
+
+`release.Orchestrate` provides the explicit sequencing boundary: stop the
+service, create a backup, verify that backup, promote, start the new binary,
+and run health checks. It accepts callbacks rather than executing systemd or
+database commands. On backup failure it does not promote; on start/health
+failure the promotion library restores the previous binary and orchestration
+attempts to restart it. Callers must provide idempotent service callbacks and
+must still use a real production backup/restore rehearsal before enabling any
+installer.

@@ -72,6 +72,9 @@ The old forum and its MariaDB data remain authoritative until cutover acceptance
   backups and automatic invocation disabled.
 - [x] Add a bounded loopback health/smoke-check helper for promotion callbacks;
   reject remote endpoints, redirects, oversized responses and marker failures.
+- [x] Add callback-driven updater orchestration for stop, backup verification,
+  promotion, restart and health recovery; keep systemd/shell integration and
+  automatic installation disabled.
 - [ ] Publish signed stable and security release metadata; build an opt-in updater
   with staging verification, backup and rollback, separate from the web process.
 - [x] Allow administrators to enable/disable individual WASM plugins without
