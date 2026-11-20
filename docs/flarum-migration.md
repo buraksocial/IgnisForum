@@ -56,3 +56,32 @@ visibility semantics do not have equivalent IgnisForum features; their omission
 must be resolved or explicitly accepted.
 The report is private because it may contain source identifiers and moderation
 details. This command does not switch traffic or change Flarum.
+
+## Offline backup and restore rehearsal
+
+The engine is single-writer and stores primary records in SSTables/WAL; forum
+indexes are rebuilt from primary records at startup. A consistent filesystem
+backup therefore requires a clean stop. The backup tool refuses a live store
+lock, archives only recognized regular database files, writes mode-`0600`
+artifacts with a SHA-256 manifest, and restores only safe paths into a new
+directory. Restore runs a database open/rebuild/close verification before it
+reports success.
+
+Do this first on staging. Do not run a restore over the configured production
+data directory; restore destinations must be new and isolated.
+
+```sh
+install -d -m 0700 /var/lib/ignisforum/backups
+go run ./cmd/ignisforum-backup -config /etc/ignisforum/config.yaml \
+  -action backup -archive /var/lib/ignisforum/backups/staging.tar.gz \
+  -data-dir /var/lib/ignisforum/migration/staging
+
+go run ./cmd/ignisforum-backup -config /etc/ignisforum/config.yaml \
+  -action restore -archive /var/lib/ignisforum/backups/staging.tar.gz \
+  -restore-dir /var/lib/ignisforum/migration/restore-check
+```
+
+On production, stop the IgnisForum service only during an approved maintenance
+window; the public domain currently remains on Flarum. Keep the archive and its
+JSON manifest in private storage, and test that both are readable before
+relying on them for rollback.

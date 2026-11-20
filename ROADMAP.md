@@ -37,8 +37,11 @@ The old forum and its MariaDB data remain authoritative until cutover acceptance
   table allowlist, protected output file, and per-table source counts.
 - [x] Verify Flarum PHP `$2y$` bcrypt hashes and upgrade accounts to Argon2id
   only after successful login; reject unsafe imported Argon2 parameters.
-- [ ] Rehearse backup/restore, migration, load/race/security tests, and rollback;
-  then perform a controlled proxy cutover and verify the public domain.
+- [x] Implement checksummed offline database backup, path-safe isolated restore,
+  and a staging backup/restore rehearsal with database rebuild verification.
+- [ ] Rehearse backup/restore against production data, complete migration and
+  load/rollback acceptance; then perform a controlled proxy cutover and verify
+  the public domain.
 
 ## Release gates
 
