@@ -65,6 +65,7 @@ type Server struct {
 	presence         memberPresence
 	pluginSettingsMu sync.Mutex
 	appearanceMu     sync.Mutex
+	attachmentsMu    sync.RWMutex
 }
 
 // New builds the router with the M2 surface (content + auth). `assets` is the
@@ -120,6 +121,9 @@ func buildRouter(srv *Server) chi.Router {
 	rr.Post("/t/{threadID}/post/{postID}/delete", srv.deletePost)
 	rr.Post("/t/{threadID}/post/{postID}/report", srv.reportPost)
 	rr.Post("/t/{threadID}/post/{postID}/reaction", srv.react)
+	rr.Get("/t/{threadID}/post/{postID}/attachment", srv.downloadAttachment)
+	rr.Post("/t/{threadID}/post/{postID}/attachment", srv.uploadAttachment)
+	rr.Post("/t/{threadID}/post/{postID}/attachment/remove", srv.removeAttachment)
 
 	rr.Get("/login", srv.loginForm)
 	rr.Post("/login", srv.loginSubmit)
@@ -155,7 +159,6 @@ func (srv *Server) sessionMW(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost {
 			r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // forms are small
-			r.ParseMultipartForm(0)
 		}
 		if c, err := r.Cookie("ignis_sid"); err == nil && c.Value != "" {
 			if sess := srv.D.Auth.GetSession(c.Value); sess != nil {
@@ -351,21 +354,23 @@ type threadRow struct {
 }
 
 type postRow struct {
-	Media     []mediaItem
-	ID        uint64
-	Number    int
-	UserID    uint64
-	Author    string
-	AvatarURL string
-	Rank      string
-	Date      time.Time
-	Rendered  template.HTML
-	Edited    bool
-	CanEdit   bool
-	CanDelete bool
-	Raw       string
-	CanReport bool
-	Reactions []reactionView
+	Attachment *attachmentInfo
+	CanAttach  bool
+	Media      []mediaItem
+	ID         uint64
+	Number     int
+	UserID     uint64
+	Author     string
+	AvatarURL  string
+	Rank       string
+	Date       time.Time
+	Rendered   template.HTML
+	Edited     bool
+	CanEdit    bool
+	CanDelete  bool
+	Raw        string
+	CanReport  bool
+	Reactions  []reactionView
 }
 
 type reactionView struct {
@@ -767,6 +772,12 @@ func (srv *Server) thread(w http.ResponseWriter, r *http.Request) {
 
 	rows := make([]postRow, 0, len(postIDs))
 	showMedia := d.Appearance.Media
+	var attachments map[uint64]attachmentInfo
+	if d.Appearance.Attachments && visibleAttachmentThread(th) {
+		if registry, err := srv.attachmentRegistry(); err == nil {
+			attachments = registry
+		}
+	}
 	userCache := make(map[uint64]*domain.User)
 	lastReadPostNumber := uint64(0)
 	for i, pid := range postIDs {
@@ -799,6 +810,12 @@ func (srv *Server) thread(w http.ResponseWriter, r *http.Request) {
 		}
 		if showMedia && post.State == 0 {
 			row.Media = postMedia(post.MessageRaw)
+		}
+		if attachments != nil && post.State == 0 {
+			if info, ok := attachments[post.ID]; ok {
+				row.Attachment = &info
+			}
+			row.CanAttach = srv.canManageAttachment(r, d.Me, th, post)
 		}
 		if d.Me != nil {
 			row.CanEdit = d.Me.ID == post.UserID && time.Since(post.Date) <= 15*time.Minute || srv.can(r, d.Me, perm.ScopeGlobal, 0, perm.KeyAdmin)
@@ -1072,6 +1089,9 @@ func (srv *Server) deletePost(w http.ResponseWriter, r *http.Request) {
 	if err := srv.Repos.Posts.DeleteReply(postID); err != nil {
 		http.Error(w, "Mesaj silinemedi.", http.StatusConflict)
 		return
+	}
+	if status := srv.deleteAttachment(postID); status != http.StatusSeeOther && status != http.StatusNotFound {
+		log.Printf("attachment cleanup failed for deleted post=%d (status=%d)", postID, status)
 	}
 	http.Redirect(w, r, "/t/"+itoa(threadID), http.StatusSeeOther)
 }

@@ -23,6 +23,7 @@ type appearanceSettings struct {
 	themeDesign
 	PreviousTheme               *themeDesign `json:",omitempty"`
 	Statistics, Presence, Media bool
+	Attachments                 bool
 	Pinned                      []uint64
 	AdTitle, AdURL              string
 }
@@ -160,7 +161,8 @@ func (srv *Server) saveAppearance(w http.ResponseWriter, r *http.Request) {
 	s := appearanceSettings{
 		themeDesign: design, Statistics: r.PostForm.Get("statistics") == "1",
 		Presence: r.PostForm.Get("presence") == "1", Media: r.PostForm.Get("media") == "1",
-		AdTitle: strings.TrimSpace(r.PostForm.Get("ad_title")), AdURL: strings.TrimSpace(r.PostForm.Get("ad_url")),
+		Attachments: r.PostForm.Get("attachments") == "1",
+		AdTitle:     strings.TrimSpace(r.PostForm.Get("ad_title")), AdURL: strings.TrimSpace(r.PostForm.Get("ad_url")),
 	}
 	pins := strings.FieldsFunc(r.PostForm.Get("pinned"), func(r rune) bool { return r == ',' || r == ' ' || r == '\n' || r == '\r' || r == '\t' })
 	if len(pins) > 8 || utf8.RuneCountInString(s.AdTitle) > 100 || (s.AdTitle == "") != (s.AdURL == "") || (s.AdURL != "" && !externalHTTPS(s.AdURL)) {

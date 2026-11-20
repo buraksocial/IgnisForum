@@ -64,7 +64,21 @@ release. Do not expose the plugin directory as a web upload destination.
   `[link]https://…[/link]` and `[download]https://…[/download]` in posts. Images
   load in the browser only after opening the preview; the server never fetches
   the resources. Download links point to external files; the external server
-  decides whether they download or open. This is not a file upload service.
+  decides whether they download or open.
+- Enable local file attachments separately in `/admin/appearance`. One file
+  up to 512 KiB can be attached to each visible post, with instance limits of
+  256 files and 64 MiB of registered file contents. The active author can
+  manage the attachment during the 15-minute edit window in an open thread
+  if they still have posting permission. An administrator with forum access
+  can manage attachments on visible posts, including in closed threads.
+  Downloads recheck forum permissions and post visibility, are not cached,
+  and are served as downloads, never inline. No malware scanning is provided.
+- Attachments are stored in the database and are included in offline database
+  backups; never expose the data directory as static files. Removing an
+  attachment deletes it from the live database view but does not erase prior
+  backups. A failed upload can leave a capacity reservation, which the
+  attachment's removal action clears. Disabling attachments hides links and
+  blocks downloads and uploads without deleting stored contents.
 - Preview an installed theme on the settings page without changing preferences.
   Saving the default applies to users without an explicit theme preference.
 - Customize the accent color, font preset, maximum site width, and corner

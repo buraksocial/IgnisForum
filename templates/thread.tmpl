@@ -36,6 +36,20 @@
     <div class="post-num">#{{.Number}} · {{ago .Date}}</div>
   </div>
   <div class="post-body">{{.Rendered}}</div>
+  {{if or .Attachment .CanAttach}}<div class="post-attachment">
+    {{if .Attachment}}<p><a href="/t/{{$page.Thread.ID}}/post/{{.ID}}/attachment" download>{{$.Locale.Text "attachment.download" .Attachment.Name}}</a> ({{.Attachment.Size}} B)</p>{{end}}
+    {{if .CanAttach}}{{if .Attachment}}
+    <form method="post" action="/t/{{$page.Thread.ID}}/post/{{.ID}}/attachment/remove">
+      <input type="hidden" name="csrf" value="{{$.CSRF}}"><button type="submit" class="btn">{{$.Locale.Text "attachment.remove"}}</button>
+    </form>
+    {{else}}<details><summary>{{$.Locale.Text "attachment.add"}}</summary>
+      <form method="post" enctype="multipart/form-data" action="/t/{{$page.Thread.ID}}/post/{{.ID}}/attachment">
+        <input type="hidden" name="csrf" value="{{$.CSRF}}">
+        <label>{{$.Locale.Text "attachment.file"}} <input type="file" name="attachment" required></label>
+        <button type="submit" class="btn">{{$.Locale.Text "attachment.upload"}}</button>
+      </form>
+    </details>{{end}}{{end}}
+  </div>{{end}}
    {{if .Media}}<ul class="post-media">{{range .Media}}<li>{{if eq .Kind "img"}}<a href="{{.Preview}}">{{$.Locale.Text "media.preview"}}</a> ({{.Host}}){{else}}<a href="{{.URL}}" rel="ugc nofollow noopener noreferrer" target="_blank">{{if eq .Kind "download"}}{{$.Locale.Text "media.download"}}{{else}}{{$.Locale.Text "media.open"}}{{end}}</a> ({{.Host}}){{end}}</li>{{end}}</ul>{{end}}
   <div class="post-foot">
     {{if .Edited}}<span class="muted">Son düzenleme: {{.Author}} · {{ago .Date}}</span>{{end}}

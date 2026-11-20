@@ -24,6 +24,7 @@
     <div class="form-row"><label><input type="checkbox" name="statistics" value="1"{{if .Appearance.Statistics}} checked{{end}}> Forum istatistikleri</label></div>
     <div class="form-row"><label><input type="checkbox" name="presence" value="1"{{if .Appearance.Presence}} checked{{end}}> Çevrimiçi ve aktif üyeler (üye adları yalnızca oturum açanlara gösterilir)</label></div>
     <div class="form-row"><label><input type="checkbox" name="media" value="1"{{if .Appearance.Media}} checked{{end}}> Mesajlarda harici görsel, bağlantı ve indirme bağlantıları</label></div>
+    <div class="form-row"><label><input type="checkbox" name="attachments" value="1"{{if .Appearance.Attachments}} checked{{end}}> Yerel dosya ekleri (mesaj başına bir dosya, en fazla 512 KiB)</label></div>
     <div class="form-row"><label for="pinned">Sabit duyuru konu numaraları (virgülle ayırın; en fazla 8)</label><input id="pinned" name="pinned" value="{{range $i, $id := .Appearance.Pinned}}{{if $i}}, {{end}}{{$id}}{{end}}"></div>
     <div class="form-row"><label for="ad-title">Reklam başlığı (boş bırakırsanız gösterilmez)</label><input id="ad-title" name="ad_title" maxlength="100" value="{{.Appearance.AdTitle}}"></div>
     <div class="form-row"><label for="ad-url">Reklam bağlantısı</label><input id="ad-url" type="url" name="ad_url" maxlength="2048" value="{{.Appearance.AdURL}}"></div>

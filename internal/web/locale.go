@@ -37,6 +37,8 @@ var turkish = &uiLocale{"tr", "ltr", "02.01.2006", map[string]string{
 	"media.title": "Görsel önizleme", "media.external": "Harici görsel",
 	"media.notice": "Bu görsel harici bir sunucudan yüklenir.", "media.source": "Kaynağı aç",
 	"media.preview": "Görseli önizle", "media.download": "Harici indirme bağlantısı", "media.open": "Harici bağlantıyı aç",
+	"attachment.download": "Dosyayı indir: %s", "attachment.remove": "Eki kaldır", "attachment.add": "Dosya ekle",
+	"attachment.file": "Dosya (en fazla 512 KiB)", "attachment.upload": "Yükle",
 	"count.threads.other": "%d konu", "count.posts.other": "%d mesaj", "count.replies.other": "%d yanıt",
 	"time.now": "az önce", "time.minute.other": "%d dk önce", "time.hour.other": "%d sa önce", "time.day.other": "%d gün önce",
 }, nil}
@@ -66,6 +68,8 @@ var englishPreview = &uiLocale{"en", "ltr", "2 Jan 2006", map[string]string{
 	"media.title": "Image preview", "media.external": "External image",
 	"media.notice": "This image loads from an external server.", "media.source": "Open source image",
 	"media.preview": "Preview image", "media.download": "External download link", "media.open": "Open external link",
+	"attachment.download": "Download file: %s", "attachment.remove": "Remove attachment", "attachment.add": "Attach a file",
+	"attachment.file": "File (up to 512 KiB)", "attachment.upload": "Upload",
 	"count.threads.one": "%d thread", "count.threads.other": "%d threads",
 	"count.posts.one": "%d post", "count.posts.other": "%d posts",
 	"count.replies.one": "%d reply", "count.replies.other": "%d replies",
