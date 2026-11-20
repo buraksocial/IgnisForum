@@ -157,12 +157,13 @@ func Import(snapshot *Snapshot, digest [32]byte, st *store.Store, repos *repo.Re
 		if ok {
 			groupMap[group.ID] = mapped
 			report.Tables["groups"] = increment(report.Tables["groups"])
-			name := strings.ToLower(strings.TrimSpace(group.NameSingular))
-			if name == "mod" || name == "moderator" || name == "moderators" {
-				report.Exceptions = append(report.Exceptions, Exception{Table: "groups", SourceID: group.ID, Reason: "moderator role mapped to member; moderator permissions require manual configuration"})
-			}
 		} else {
-			report.Exceptions = append(report.Exceptions, Exception{Table: "groups", SourceID: group.ID, Reason: "custom Flarum group has no equivalent IgnisForum role"})
+			name := strings.ToLower(strings.TrimSpace(group.NameSingular))
+			reason := "custom Flarum group has no equivalent IgnisForum role"
+			if name == "mod" || name == "moderator" || name == "moderators" {
+				reason = "moderator group omitted rather than mapped to members; configure a dedicated role before migration"
+			}
+			report.Exceptions = append(report.Exceptions, Exception{Table: "groups", SourceID: group.ID, Reason: reason})
 		}
 	}
 	permissionGrants := make(map[uint64]map[string]bool)
@@ -521,8 +522,6 @@ func mapGroup(name string) (uint64, bool) {
 		return perm.GroupMember, true
 	case "guest", "guests":
 		return perm.GroupGuest, true
-	case "mod", "moderator", "moderators":
-		return perm.GroupMember, true
 	default:
 		return 0, false
 	}

@@ -117,6 +117,17 @@ func TestImportPreservesSourceIDsSanitizesAndReplays(t *testing.T) {
 	}
 }
 
+func TestModeratorGroupIsNotCollapsedIntoMemberRole(t *testing.T) {
+	for _, name := range []string{"Mod", "moderator", "Moderators"} {
+		if _, ok := mapGroup(name); ok {
+			t.Errorf("moderator group %q was mapped to a different privilege role", name)
+		}
+	}
+	if got, ok := mapGroup("Member"); !ok || got != perm.GroupMember {
+		t.Fatalf("member role mapping = %d, %v", got, ok)
+	}
+}
+
 func testSnapshot(t *testing.T, rows map[string][]map[string]any) *Snapshot {
 	t.Helper()
 	tables := make(map[string]json.RawMessage, len(rows))
