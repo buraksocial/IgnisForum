@@ -138,6 +138,8 @@ func buildRouter(srv *Server) chi.Router {
 	rr.Get("/media/preview", srv.mediaPreview)
 	rr.Get("/admin/nodes", srv.adminNodes)
 	rr.Post("/admin/nodes", srv.saveAdminNode)
+	rr.Get("/admin/users", srv.adminUsers)
+	rr.Post("/admin/users/{userID}", srv.saveAdminUser)
 	rr.Get("/admin/reports", srv.adminReports)
 	rr.Post("/admin/reports/{reportID}/resolve", srv.resolveReport)
 	rr.Get("/admin/permissions", srv.adminPermissions)
@@ -281,6 +283,9 @@ type pageData struct {
 	AdminGroups         []adminGroupView
 	AdminPermissionRows []adminPermissionRow
 	AdminNodeRows       []adminNodeRow
+	AdminUsers          []adminUserRow
+	AdminUserPage       int
+	AdminUserTotal      int
 	Reports             []adminReportRow
 	Profile             *domain.User
 	ProfilePosts        []profilePostRow
@@ -335,6 +340,14 @@ type adminReportRow struct {
 	ID, PostID, ThreadID uint64
 	Reason, Reporter     string
 	CreatedAt            time.Time
+}
+type adminUserRow struct {
+	ID       uint64
+	Username string
+	State    int
+	Groups   []uint64
+	JoinedAt time.Time
+	LastSeen time.Time
 }
 type adminGroupView struct {
 	ID   uint64

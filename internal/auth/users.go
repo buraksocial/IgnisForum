@@ -66,6 +66,36 @@ func (u *UserRepo) GetByID(id uint64) (*domain.User, bool) {
 	return &usr, true
 }
 
+// List returns a bounded, newest-first page of users. The store deliberately
+// has no key-scan primitive, so this walks the dense user high-water mark and
+// skips holes left by deleted/imported records.
+func (u *UserRepo) List(offset, limit int) ([]*domain.User, int) {
+	if offset < 0 {
+		offset = 0
+	}
+	if limit <= 0 {
+		return nil, 0
+	}
+	max := u.s.s.MaxID(store.TypeUser)
+	users := make([]*domain.User, 0, limit)
+	total, skipped := 0, 0
+	for id := max; id > 0; id-- {
+		user, ok := u.GetByID(id)
+		if !ok {
+			continue
+		}
+		total++
+		if skipped < offset {
+			skipped++
+			continue
+		}
+		if len(users) < limit {
+			users = append(users, user)
+		}
+	}
+	return users, total
+}
+
 // ByName resolves a login identifier: a username, or (contains '@') an email.
 func (u *UserRepo) ByName(name string) (*domain.User, bool) {
 	name = strings.TrimSpace(name)
@@ -167,6 +197,9 @@ func (u *UserRepo) Register(username, email, password string) (*domain.User, err
 // CreateUserDirect creates a user with a known id/password hash (bootstrap:
 // the admin account and the seed demo users). Same write order as Register.
 func (u *UserRepo) CreateUserDirect(id uint64, username, email, passwordHash string, groups []uint64, wpID int) (*domain.User, error) {
+	// Direct/imported IDs must advance the shared allocator; otherwise the next
+	// normal registration could eventually reuse an externally assigned ID.
+	u.s.s.AdvanceIDFloor(id)
 	usr := &domain.User{
 		ID: id, Username: username, EmailHash: HashEmail(email), PasswordHash: passwordHash,
 		State: 0, GroupIDs: groups,

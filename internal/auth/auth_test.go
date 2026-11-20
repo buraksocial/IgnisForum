@@ -251,6 +251,26 @@ func TestAdminPasswordRecovery(t *testing.T) {
 	}
 }
 
+func TestDirectUserIDAdvancesAllocator(t *testing.T) {
+	s := openStore(t)
+	a := NewService(s)
+	u := NewUserRepo(a, NewRateLimiter(s))
+	hash, err := a.HashPassword("direct-user-password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := u.CreateUserDirect(50, "imported", "imported@example.com", hash, []uint64{GroupMember}, 0); err != nil {
+		t.Fatal(err)
+	}
+	next, err := u.Register("normal-user", "normal@example.com", "normal-password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if next.ID <= 50 {
+		t.Fatalf("normal registration reused direct ID: %d", next.ID)
+	}
+}
+
 func itoaA(v uint64) string {
 	if v == 0 {
 		return "0"

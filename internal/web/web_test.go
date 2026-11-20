@@ -601,6 +601,47 @@ func TestPagesSmoke(t *testing.T) {
 	}
 }
 
+func TestAdminUserManagementSuspendsAndProtectsSelf(t *testing.T) {
+	ts, s, _, authSvc, _ := newTestServer(t)
+	adminClient := loginAsAdmin(t, ts, s, authSvc)
+	register(t, ts, "managed-user")
+	users := auth.NewUserRepo(authSvc, auth.NewRateLimiter(s))
+	managed, ok := users.ByName("managed-user")
+	if !ok {
+		t.Fatal("managed user was not created")
+	}
+
+	code, body, _ := getBody(t, adminClient, ts.URL+"/admin/users")
+	if code != http.StatusOK || !strings.Contains(body, "managed-user") {
+		t.Fatalf("admin users = %d, missing member", code)
+	}
+	csrf := mustFindCSRF(t, adminClient, ts.URL+"/admin/users")
+	resp := formPost(t, adminClient, ts.URL+"/admin/users/"+itoa(managed.ID), url.Values{
+		"csrf": {csrf}, "action": {"suspend"},
+	})
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("suspend = %d", resp.StatusCode)
+	}
+
+	// Suspension must take effect at authentication, not only in the UI.
+	loginClient := jarNoRedirect()
+	loginCSRF := preCSRF(t, loginClient, ts.URL+"/login")
+	resp = formPost(t, loginClient, ts.URL+"/login", url.Values{
+		"csrf": {loginCSRF}, "username": {"managed-user"}, "password": {"geheim123"},
+	})
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("suspended login = %d, want unauthorized", resp.StatusCode)
+	}
+
+	adminCSRF := mustFindCSRF(t, adminClient, ts.URL+"/admin/users")
+	resp = formPost(t, adminClient, ts.URL+"/admin/users/50", url.Values{
+		"csrf": {adminCSRF}, "action": {"suspend"},
+	})
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("self suspend = %d, want conflict", resp.StatusCode)
+	}
+}
+
 // TestAuthE2E is the M2 acceptance walk: register → auto-login → reply with
 // CSRF → post visible under the new username → logout → writes blocked again.
 func TestAuthE2E(t *testing.T) {

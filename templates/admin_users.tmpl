@@ -1,0 +1,28 @@
+{{define "admin_users"}}
+{{template "header" .}}
+<div class="toolbar"><h1>{{.Locale.Text "admin.users"}}</h1><a class="btn" href="/admin">{{.Locale.Text "admin.back"}}</a></div>
+<p class="muted">{{.Locale.Text "admin.users_count" .AdminUserTotal}}</p>
+<div class="admin-user-list">
+{{range .AdminUsers}}
+<section class="panel admin-user-card">
+  <div class="admin-user-heading"><div><strong>{{.Username}}</strong> <span class="muted">#{{.ID}}</span></div><span class="{{if eq .State 0}}user-state-active{{else}}user-state-suspended{{end}}">{{if eq .State 0}}{{$.Locale.Text "admin.user_active"}}{{else}}{{$.Locale.Text "admin.user_suspended"}}{{end}}</span></div>
+  <dl class="admin-user-meta">
+    <div><dt>{{$.Locale.Text "profile.joined"}}</dt><dd><time datetime="{{.JoinedAt.Format "2006-01-02T15:04:05Z07:00"}}">{{.JoinedAt.Format "2006-01-02"}}</time></dd></div>
+    <div><dt>{{$.Locale.Text "admin.user_last_seen"}}</dt><dd><time datetime="{{.LastSeen.Format "2006-01-02T15:04:05Z07:00"}}">{{$.Locale.Ago .LastSeen $.Now}}</time></dd></div>
+  </dl>
+  <form class="admin-user-actions" method="post" action="/admin/users/{{.ID}}">
+    <input type="hidden" name="csrf" value="{{$.CSRF}}">
+    {{if eq .State 0}}<button class="btn btn-danger" name="action" value="suspend">{{$.Locale.Text "admin.user_suspend"}}</button>{{else}}<button class="btn" name="action" value="activate">{{$.Locale.Text "admin.user_activate"}}</button>{{end}}
+  </form>
+  <form class="admin-user-groups" method="post" action="/admin/users/{{.ID}}">
+    <input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="action" value="groups">
+    <label for="groups-{{.ID}}">{{$.Locale.Text "admin.user_groups"}}</label>
+    <input id="groups-{{.ID}}" name="groups" value="{{range $i, $group := .Groups}}{{if $i}},{{end}}{{$group}}{{end}}" pattern="[123](,[123])*" inputmode="numeric">
+    <button class="btn btn-primary" type="submit">{{$.Locale.Text "profile.save"}}</button>
+  </form>
+</section>
+{{else}}<div class="empty">{{.Locale.Text "admin.users_empty"}}</div>{{end}}
+</div>
+{{template "pager" .}}
+{{template "footer" .}}
+{{end}}

@@ -51,6 +51,108 @@ func (srv *Server) adminHome(w http.ResponseWriter, r *http.Request) {
 	srv.render(w, "admin", d)
 }
 
+func (srv *Server) adminUsers(w http.ResponseWriter, r *http.Request) {
+	if srv.requireAdmin(w, r) == nil {
+		return
+	}
+	page := parseInt(r, "p", 1)
+	if page > 100000 {
+		page = 100000
+	}
+	users, total := srv.D.Users.List((page-1)*pageSize, pageSize)
+	d := srv.base(r, srv.uiLocale().Text("admin.users"), "admin", []Crumb{{URL: "/admin", Title: srv.uiLocale().Text("nav.admin")}})
+	d.AdminUserPage, d.AdminUserTotal = page, total
+	d.TotalPages = pageCount(total, pageSize)
+	d.PageWindow = pageWindow(page, d.TotalPages)
+	for _, user := range users {
+		d.AdminUsers = append(d.AdminUsers, adminUserRow{ID: user.ID, Username: user.Username, State: user.State,
+			Groups: append([]uint64(nil), user.GroupIDs...), JoinedAt: user.JoinedAt, LastSeen: user.LastSeen})
+	}
+	srv.render(w, "admin_users", d)
+}
+
+func (srv *Server) saveAdminUser(w http.ResponseWriter, r *http.Request) {
+	locale := srv.uiLocale()
+	admin := srv.requireAdmin(w, r)
+	if admin == nil {
+		return
+	}
+	if err := r.ParseForm(); err != nil || !csrfOK(r, r.FormValue("csrf")) {
+		srv.deny(w, r, locale.Text("auth.bad_csrf"))
+		return
+	}
+	if ok, retry := srv.D.RL.Allow("admin-users", strconv.FormatUint(admin.ID, 10), 30, time.Minute); !ok {
+		srv.tooMany(w, r, retry)
+		return
+	}
+	targetID := parseID(chi.URLParam(r, "userID"))
+	target, ok := srv.D.Users.GetByID(targetID)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	action := r.FormValue("action")
+	switch action {
+	case "suspend", "activate":
+		if targetID == admin.ID && action == "suspend" {
+			http.Error(w, locale.Text("admin.user_self_suspend"), http.StatusConflict)
+			return
+		}
+		target.State = 0
+		if action == "suspend" {
+			target.State = 1
+		}
+		if err := srv.Store.PutJSON("user:"+strconv.FormatUint(target.ID, 10), target); err != nil {
+			http.Error(w, locale.Text("admin.user_save_failed"), http.StatusInternalServerError)
+			return
+		}
+	case "groups":
+		groups := make([]uint64, 0, 2)
+		for _, raw := range strings.Split(r.FormValue("groups"), ",") {
+			id, err := strconv.ParseUint(strings.TrimSpace(raw), 10, 64)
+			if err != nil || (id != perm.GroupGuest && id != perm.GroupMember && id != perm.GroupAdmin) {
+				http.Error(w, locale.Text("admin.user_bad_groups"), http.StatusBadRequest)
+				return
+			}
+			found := false
+			for _, existing := range groups {
+				if existing == id {
+					found = true
+					break
+				}
+			}
+			if !found {
+				groups = append(groups, id)
+			}
+		}
+		if len(groups) == 0 {
+			groups = []uint64{perm.GroupMember}
+		}
+		if targetID == admin.ID && !containsGroup(groups, perm.GroupAdmin) {
+			http.Error(w, locale.Text("admin.user_self_demote"), http.StatusConflict)
+			return
+		}
+		target.GroupIDs = groups
+		if err := srv.Store.PutJSON("user:"+strconv.FormatUint(target.ID, 10), target); err != nil {
+			http.Error(w, locale.Text("admin.user_save_failed"), http.StatusInternalServerError)
+			return
+		}
+	default:
+		http.Error(w, locale.Text("admin.user_bad_action"), http.StatusBadRequest)
+		return
+	}
+	http.Redirect(w, r, "/admin/users?p="+strconv.Itoa(parseInt(r, "p", 1)), http.StatusSeeOther)
+}
+
+func containsGroup(groups []uint64, want uint64) bool {
+	for _, group := range groups {
+		if group == want {
+			return true
+		}
+	}
+	return false
+}
+
 func (srv *Server) adminReports(w http.ResponseWriter, r *http.Request) {
 	if srv.requireAdmin(w, r) == nil {
 		return
