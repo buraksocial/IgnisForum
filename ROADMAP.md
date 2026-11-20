@@ -64,6 +64,9 @@ The old forum and its MariaDB data remain authoritative until cutover acceptance
   at least 20 production-ready translations end to end.
 - [x] Add opt-in scheduled checks of signed stable and security metadata,
   without downloading or installing releases.
+- [x] Add a separate operator-invoked HTTPS artifact staging tool with signature,
+  channel/platform/version/expiry, streamed size/hash verification, private
+  non-executable quarantine and no installation or service restart.
 - [ ] Publish signed stable and security release metadata; build an opt-in updater
   with staging verification, backup and rollback, separate from the web process.
 - [x] Allow administrators to enable/disable individual WASM plugins without

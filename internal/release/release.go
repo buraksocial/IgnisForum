@@ -1,4 +1,5 @@
-// Package release verifies metadata and locally staged artifacts without installing them.
+// Package release verifies signed metadata and quarantines release artifacts
+// without installing them.
 package release
 
 import (

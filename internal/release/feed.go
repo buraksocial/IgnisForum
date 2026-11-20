@@ -36,7 +36,13 @@ type signedFeed struct {
 // cookies, or proxy configuration from the environment. The public key is
 // supplied out of band. The network cannot choose an artifact URL.
 func CheckFeed(ctx context.Context, endpoint string, key ed25519.PublicKey, p Policy) (FeedResult, error) {
-	transport := &http.Transport{
+	transport := releaseTransport()
+	defer transport.CloseIdleConnections()
+	return checkFeed(ctx, endpoint, key, p, transport)
+}
+
+func releaseTransport() *http.Transport {
+	return &http.Transport{
 		DialContext:            (&net.Dialer{Timeout: 5 * time.Second}).DialContext,
 		TLSHandshakeTimeout:    5 * time.Second,
 		ResponseHeaderTimeout:  5 * time.Second,
@@ -44,8 +50,6 @@ func CheckFeed(ctx context.Context, endpoint string, key ed25519.PublicKey, p Po
 		TLSClientConfig:        &tls.Config{MinVersion: tls.VersionTLS12},
 		DisableCompression:     true,
 	}
-	defer transport.CloseIdleConnections()
-	return checkFeed(ctx, endpoint, key, p, transport)
 }
 
 func checkFeed(ctx context.Context, endpoint string, key ed25519.PublicKey, p Policy, transport http.RoundTripper) (FeedResult, error) {
