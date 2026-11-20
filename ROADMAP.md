@@ -70,6 +70,8 @@ The old forum and its MariaDB data remain authoritative until cutover acceptance
 - [x] Add a promotion library with immediate re-verification, atomic binary
   replacement and health-failure binary rollback; keep service orchestration,
   backups and automatic invocation disabled.
+- [x] Add a bounded loopback health/smoke-check helper for promotion callbacks;
+  reject remote endpoints, redirects, oversized responses and marker failures.
 - [ ] Publish signed stable and security release metadata; build an opt-in updater
   with staging verification, backup and rollback, separate from the web process.
 - [x] Allow administrators to enable/disable individual WASM plugins without

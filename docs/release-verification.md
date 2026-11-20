@@ -142,3 +142,11 @@ not mean an update is safe to promote: the caller must hold the service/data
 write freeze, create and verify an offline backup, run migration compatibility
 checks and authenticated health/smoke tests, and log the result. No CLI or
 systemd unit invokes this library yet; automatic installation remains disabled.
+
+`release.CheckHealth` is a bounded helper for the promotion callback. It only
+accepts an HTTP(S) URL addressed by an explicit loopback IP, refuses credentials,
+queries, fragments, redirects and compressed/oversized responses, and can send
+a caller-provided bearer token without logging it. It verifies the expected
+status and an optional response marker. It does not prove database compatibility
+or forum semantics; callers must add authenticated smoke assertions and keep
+the endpoint in the local promotion environment.
