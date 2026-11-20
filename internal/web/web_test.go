@@ -54,8 +54,12 @@ func newTestServer(t *testing.T) (*httptest.Server, *store.Store, *repo.Repos, *
 		t.Fatal(err)
 	}
 
+	themes, err := LoadThemeManager(assets.FS, "")
+	if err != nil {
+		t.Fatal(err)
+	}
 	srv := &Server{Store: s, Repos: r, D: Deps{Auth: authSvc, Users: users, RL: rl, Perms: perms},
-		css: []byte(".x{--color-brand:#ff4400}"), tmpl: loadTemplates(assets.FS)}
+		themes: themes, tmpl: loadTemplates(assets.FS)}
 	ts := httptest.NewServer(srv.router())
 	t.Cleanup(ts.Close)
 	return ts, s, r, authSvc, perms

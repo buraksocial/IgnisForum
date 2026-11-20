@@ -1,10 +1,10 @@
 {{define "header"}}<!doctype html>
-<html lang="tr" data-color-scheme="light">
+<html lang="tr" data-theme="{{.ThemeID}}" data-color-scheme="light">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{.Title}}</title>
-<link rel="stylesheet" href="/s/thred/style.css">
+<link rel="stylesheet" href="/s/{{.ThemeID}}/style.css?v={{.ThemeVersion}}">
 </head>
 <body>
 <header class="site-header"><div class="container inner">
@@ -16,6 +16,7 @@
   {{if .Admin}}<a href="/admin" class="{{if eq .Nav "admin"}}active{{end}}">Yönetim</a>{{end}}
 </nav>
 <div class="hdr-user">
+  <details class="theme-menu"><summary>Tema</summary><div class="theme-menu-items">{{range .ThemeOptions}}<a href="/theme/{{.ID}}?next={{$.ThemeBack}}">{{.Name}}</a>{{end}}</div></details>
   <button class="theme-toggle" title="Tema değiştir" onclick="(function(){var h=document.documentElement;h.dataset.colorScheme=h.dataset.colorScheme==='dark'?'light':'dark';try{localStorage.setItem('ignis-theme',h.dataset.colorScheme)}catch(e){}})()">◐</button>
   {{if .Me}}
   <form method="post" action="/logout" style="display:inline">

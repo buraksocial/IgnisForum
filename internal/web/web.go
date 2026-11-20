@@ -38,36 +38,37 @@ var Version = "dev"
 
 // Deps carries the M2 services into the web layer.
 type Deps struct {
-	Auth   *auth.Service
-	Users  *auth.UserRepo
-	RL     *auth.RateLimiter
-	Perms  *perm.Engine
-	Secure bool // cookies carry the Secure flag (behind TLS, M6)
+	Auth     *auth.Service
+	Users    *auth.UserRepo
+	RL       *auth.RateLimiter
+	Perms    *perm.Engine
+	Secure   bool // cookies carry the Secure flag (behind TLS, M6)
+	ThemeDir string
 }
 
 // Server holds shared dependencies for all handlers.
 type Server struct {
-	Store *store.Store
-	Repos *repo.Repos
-	D     Deps
-	css   []byte
-	tmpl  *template.Template
+	Store  *store.Store
+	Repos  *repo.Repos
+	D      Deps
+	themes *ThemeManager
+	tmpl   *template.Template
 }
 
 // New builds the router with the M2 surface (content + auth). `assets` is the
 // embedded theme FS (templates/ + styles/thred/style.css) from the module root
 // assets package.
 func New(s *store.Store, r *repo.Repos, d Deps, assets embed.FS) chi.Router {
-	css, err := assets.ReadFile("styles/thred/style.css")
+	themes, err := LoadThemeManager(assets, d.ThemeDir)
 	if err != nil {
-		panic("web: theme css missing from embed: " + err.Error())
+		panic("web: load themes: " + err.Error())
 	}
 	srv := &Server{
-		Store: s,
-		Repos: r,
-		D:     d,
-		css:   css,
-		tmpl:  loadTemplates(assets),
+		Store:  s,
+		Repos:  r,
+		D:      d,
+		themes: themes,
+		tmpl:   loadTemplates(assets),
 	}
 	return buildRouter(srv)
 }
@@ -83,7 +84,8 @@ func buildRouter(srv *Server) chi.Router {
 	rr.Use(srv.sessionMW) // resolves ignis_sid → context (one KV Get per request)
 
 	rr.Get("/healthz", srv.healthz)
-	rr.Get("/s/thred/style.css", srv.serveStyle)
+	rr.Get("/s/{theme}/style.css", srv.serveStyle)
+	rr.Get("/theme/{themeID}", srv.selectTheme)
 
 	rr.Get("/", srv.home)
 	rr.Get("/latest", srv.latest)
@@ -199,6 +201,10 @@ type pageData struct {
 	FormError    string
 	Remember     bool
 	RedirectBack string
+	ThemeID      string
+	ThemeVersion string
+	ThemeOptions []ThemeOption
+	ThemeBack    string
 
 	// administration
 	AdminNodes          []adminNodeOption
@@ -285,6 +291,7 @@ func (srv *Server) base(r *http.Request, title, nav string, crumbs []Crumb) *pag
 		Version:    Version, Now: time.Now(),
 		Sess: sessOf(r),
 	}
+	d.ThemeBack = safeNext(r.URL.RequestURI())
 	if d.Sess != nil {
 		d.CSRF = d.Sess.CSRF
 		d.Me = srv.me(r)
@@ -296,6 +303,21 @@ func (srv *Server) base(r *http.Request, title, nav string, crumbs []Crumb) *pag
 			d.Admin = srv.can(r, d.Me, perm.ScopeGlobal, 0, perm.KeyAdmin)
 		}
 	}
+	themeID := ""
+	if d.Me != nil {
+		themeID = d.Me.Theme
+	}
+	if themeID == "" {
+		if cookie, err := r.Cookie("ignis_theme"); err == nil {
+			themeID = cookie.Value
+		}
+	}
+	if theme, _, ok := srv.themes.Get(themeID); ok {
+		d.ThemeID, d.ThemeVersion = theme.ID, theme.Version
+	} else if theme, _, ok := srv.themes.Get("thred"); ok {
+		d.ThemeID, d.ThemeVersion = theme.ID, theme.Version
+	}
+	d.ThemeOptions = srv.themes.Options()
 	return d
 }
 
@@ -407,10 +429,34 @@ func (srv *Server) healthz(w http.ResponseWriter, _ *http.Request) {
 	_, _ = w.Write(b)
 }
 
-func (srv *Server) serveStyle(w http.ResponseWriter, _ *http.Request) {
+func (srv *Server) serveStyle(w http.ResponseWriter, r *http.Request) {
+	theme, css, ok := srv.themes.Get(chi.URLParam(r, "theme"))
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
 	w.Header().Set("Content-Type", "text/css; charset=utf-8")
 	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
-	_, _ = w.Write(srv.css)
+	w.Header().Set("ETag", `"`+theme.Version+`"`)
+	_, _ = w.Write(css)
+}
+
+func (srv *Server) selectTheme(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "themeID")
+	if _, _, ok := srv.themes.Get(id); !ok {
+		http.NotFound(w, r)
+		return
+	}
+	if me := srv.me(r); me != nil {
+		if err := srv.D.Users.SetTheme(me.ID, id); err != nil {
+			http.Error(w, "theme preference could not be saved", http.StatusInternalServerError)
+			return
+		}
+	} else {
+		http.SetCookie(w, &http.Cookie{Name: "ignis_theme", Value: id, Path: "/", MaxAge: 365 * 24 * 60 * 60,
+			HttpOnly: true, Secure: srv.D.Secure, SameSite: http.SameSiteLaxMode})
+	}
+	http.Redirect(w, r, safeNext(r.URL.Query().Get("next")), http.StatusSeeOther)
 }
 
 func (srv *Server) notFound(w http.ResponseWriter, r *http.Request) {

@@ -169,6 +169,12 @@ label { display: block; font-size: 13px; font-weight: 600; margin: 12px 0 4px; }
 .permission-table th:first-child { min-width: 190px; }
 .permission-table th small { display: block; color: var(--color-typ-tone); font-weight: 400; }
 .admin-actions { display: flex; justify-content: flex-end; padding: 14px 0; }
+.theme-menu { position: relative; font-size: 13px; }
+.theme-menu summary { cursor: pointer; list-style: none; border: 1px solid var(--color-brd); border-radius: 999px; padding: 5px 10px; }
+.theme-menu summary::-webkit-details-marker { display: none; }
+.theme-menu-items { position: absolute; z-index: 20; right: 0; top: calc(100% + 6px); min-width: 150px; padding: 6px; border: 1px solid var(--color-brd); border-radius: var(--radius-theme); background: var(--color-bg); box-shadow: 0 8px 24px #0002; }
+.theme-menu-items a { display: block; padding: 6px 10px; border-radius: 5px; }
+.theme-menu-items a:hover { background: var(--color-bg-tone); text-decoration: none; }
 
 .reply-box { border: 1px solid var(--color-brd); border-radius: var(--radius-theme); padding: 16px; margin-top: 24px; background: var(--color-bg); }
 

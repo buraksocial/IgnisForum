@@ -141,7 +141,7 @@ func main() {
 	}
 
 	web.Version = version
-	rtr := web.New(st, r, web.Deps{Auth: authSvc, Users: users, RL: rl, Perms: perms, Secure: cfg.SecureCookies}, assets.FS)
+	rtr := web.New(st, r, web.Deps{Auth: authSvc, Users: users, RL: rl, Perms: perms, Secure: cfg.SecureCookies, ThemeDir: cfg.ThemeDir}, assets.FS)
 
 	srv := &http.Server{
 		Addr:              cfg.ListenAddr,

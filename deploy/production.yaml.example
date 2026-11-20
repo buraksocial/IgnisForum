@@ -7,3 +7,4 @@ cache_size: 67108864
 compaction_threshold: 4
 base_url: https://forum.tutorial.com.tr
 secure_cookies: true
+theme_dir: /var/lib/ignisforum/themes

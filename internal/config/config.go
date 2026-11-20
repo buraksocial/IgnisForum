@@ -30,6 +30,8 @@ type Config struct {
 	BaseURL string `yaml:"base_url"`
 	// SecureCookies must be true when TLS terminates at the reverse proxy.
 	SecureCookies bool `yaml:"secure_cookies"`
+	// ThemeDir contains administrator-installed, manifest-validated CSS themes.
+	ThemeDir string `yaml:"theme_dir"`
 }
 
 // Default returns configuration with the fixed architecture defaults applied.
@@ -88,6 +90,9 @@ func (c *Config) applyEnv() {
 	}
 	if v := os.Getenv("IGNISFORUM_SECURE_COOKIES"); v != "" {
 		c.SecureCookies = v == "1" || strings.EqualFold(v, "true") || strings.EqualFold(v, "yes")
+	}
+	if v := os.Getenv("IGNISFORUM_THEME_DIR"); v != "" {
+		c.ThemeDir = v
 	}
 	if v := os.Getenv("IGNISFORUM_MEMTABLE_SIZE"); v != "" {
 		if n, err := strconv.ParseInt(v, 10, 64); err == nil {

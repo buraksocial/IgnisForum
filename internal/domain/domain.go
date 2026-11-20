@@ -25,6 +25,7 @@ type User struct {
 	WarnPoints   int               `json:"warn_points"`
 	Timezone     string            `json:"timezone"`
 	Locale       string            `json:"locale"`
+	Theme        string            `json:"theme,omitempty"`
 	Opts         map[string]any    `json:"opts,omitempty"`
 	JoinedAt     time.Time         `json:"joined_at"`
 	LastSeen     time.Time         `json:"last_seen"`

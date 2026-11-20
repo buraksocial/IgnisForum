@@ -206,6 +206,16 @@ func (u *UserRepo) SetPassword(id uint64, password string) error {
 	return u.s.s.PutJSON(keyUser(id), usr)
 }
 
+// SetTheme persists a validated theme identifier as a member preference.
+func (u *UserRepo) SetTheme(id uint64, theme string) error {
+	usr, ok := u.GetByID(id)
+	if !ok {
+		return ErrNotFound
+	}
+	usr.Theme = theme
+	return u.s.s.PutJSON(keyUser(id), usr)
+}
+
 // Login verifies credentials and mints a session. Rate limiting is the
 // caller's responsibility around this (web layer checks both buckets); this
 // only clears the buckets on success.

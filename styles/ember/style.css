@@ -1,0 +1,19 @@
+:root {
+  --color-brand: #bd542f;
+  --color-brand-light: #f6e5dc;
+  --color-brd: #e1cfc4;
+  --color-bg: #fffaf6;
+  --color-bg-tone: #f3e9e1;
+  --color-typ: #392a24;
+  --color-typ-tone: #806d62;
+}
+
+[data-color-scheme="dark"] {
+  --color-brand: #f09a72;
+  --color-brand-light: #4c2d24;
+  --color-brd: #504038;
+  --color-bg: #211b18;
+  --color-bg-tone: #2d241f;
+  --color-typ: #f3e9e1;
+  --color-typ-tone: #b8a79a;
+}
