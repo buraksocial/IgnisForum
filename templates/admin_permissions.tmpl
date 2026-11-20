@@ -1,17 +1,17 @@
 {{define "admin_permissions"}}
 {{template "header" .}}
-<div class="toolbar"><h1>İzin matrisi</h1><a class="btn" href="/admin">Yönetime dön</a></div>
+<div class="toolbar"><h1>{{.Locale.Text "admin.matrix"}}</h1><a class="btn" href="/admin">{{.Locale.Text "admin.back"}}</a></div>
 <form class="panel admin-filter" method="get" action="/admin/permissions">
-  <label for="scope">Kapsam</label>
+  <label for="scope">{{.Locale.Text "permission.scope"}}</label>
   <select id="scope" name="scope">
-    <option value="*" {{if eq .AdminScope "*"}}selected{{end}}>Genel</option>
-    <option value="node" {{if eq .AdminScope "node"}}selected{{end}}>Kategori / forum</option>
+    <option value="*" {{if eq .AdminScope "*"}}selected{{end}}>{{.Locale.Text "permission.global"}}</option>
+    <option value="node" {{if eq .AdminScope "node"}}selected{{end}}>{{.Locale.Text "permission.node_scope"}}</option>
   </select>
-  <label for="node">Düğüm</label>
+  <label for="node">{{.Locale.Text "permission.node"}}</label>
   <select id="node" name="node">
-    {{range .AdminNodes}}<option value="{{.ID}}" {{if eq .ID $.AdminNodeID}}selected{{end}}>{{.Type}} · {{.Title}}</option>{{end}}
+    {{range .AdminNodes}}<option value="{{.ID}}" {{if eq .ID $.AdminNodeID}}selected{{end}}>{{if eq .Type "Kategori"}}{{$.Locale.Text "node.category"}}{{else}}{{$.Locale.Text "node.forum"}}{{end}} · {{.Title}}</option>{{end}}
   </select>
-  <button class="btn" type="submit">Kapsamı aç</button>
+  <button class="btn" type="submit">{{.Locale.Text "permission.open"}}</button>
 </form>
 <form method="post" action="/admin/permissions">
   <input type="hidden" name="csrf" value="{{.CSRF}}">
@@ -19,22 +19,22 @@
   {{if eq .AdminScope "node"}}<input type="hidden" name="node" value="{{.AdminNodeID}}">{{end}}
   <div class="table-wrap">
     <table class="data-table permission-table">
-      <thead><tr><th>İzin</th>{{range .AdminGroups}}<th>{{.Name}}</th>{{end}}</tr></thead>
+      <thead><tr><th>{{.Locale.Text "permission.permission"}}</th>{{range .AdminGroups}}<th>{{$.Locale.Text .Name}}</th>{{end}}</tr></thead>
       <tbody>
       {{range .AdminPermissionRows}}
-        <tr><th scope="row">{{.Label}}<small>{{.Key}}</small></th>
+        <tr><th scope="row">{{$.Locale.Text .Label}}<small>{{.Key}}</small></th>
         {{range .Cells}}<td>
           <select name="{{.Name}}" aria-label="{{.Name}}">
-            <option value="inherit" {{if eq .Value "inherit"}}selected{{end}}>Devral</option>
-            <option value="allow" {{if eq .Value "allow"}}selected{{end}}>İzin ver</option>
-            <option value="deny" {{if eq .Value "deny"}}selected{{end}}>Reddet</option>
+            <option value="inherit" {{if eq .Value "inherit"}}selected{{end}}>{{$.Locale.Text "permission.inherit"}}</option>
+            <option value="allow" {{if eq .Value "allow"}}selected{{end}}>{{$.Locale.Text "permission.allow"}}</option>
+            <option value="deny" {{if eq .Value "deny"}}selected{{end}}>{{$.Locale.Text "permission.deny"}}</option>
           </select>
         </td>{{end}}</tr>
       {{end}}
       </tbody>
     </table>
   </div>
-  <div class="admin-actions"><button class="btn btn-primary" type="submit">İzinleri kaydet</button></div>
+  <div class="admin-actions"><button class="btn btn-primary" type="submit">{{.Locale.Text "permission.save"}}</button></div>
 </form>
 {{template "footer" .}}
 {{end}}

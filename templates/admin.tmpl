@@ -1,26 +1,26 @@
 {{define "admin"}}
 {{template "header" .}}
-<div class="toolbar"><h1>Yönetim merkezi</h1></div>
+<div class="toolbar"><h1>{{.Locale.Text "admin.home"}}</h1></div>
 <div class="admin-grid">
-  <section class="panel"><h2>Görünüm ve eklentiler</h2><a class="btn btn-primary" href="/admin/appearance">Temaları ve eklentileri yönet</a></section>
+  <section class="panel"><h2>{{.Locale.Text "admin.appearance"}}</h2><a class="btn btn-primary" href="/admin/appearance">{{.Locale.Text "admin.manage_appearance"}}</a></section>
   <section class="panel">
-    <h2>Forum yapısı</h2>
-    <p class="muted">Kategori ve forumları ekleyin, düzenleyin veya boş düğümleri kaldırın.</p>
-    <a class="btn btn-primary" href="/admin/nodes">Forumları yönet</a>
+    <h2>{{.Locale.Text "admin.structure"}}</h2>
+    <p class="muted">{{.Locale.Text "admin.structure_help"}}</p>
+    <a class="btn btn-primary" href="/admin/nodes">{{.Locale.Text "admin.manage_nodes"}}</a>
   </section>
   <section class="panel">
-    <h2>Rapor kuyruğu</h2>
-    <p class="muted">Üyelerin bildirdiği mesajları inceleyin ve sonuçlandırın.</p>
-    <a class="btn btn-primary" href="/admin/reports">Raporları incele</a>
+    <h2>{{.Locale.Text "admin.queue"}}</h2>
+    <p class="muted">{{.Locale.Text "admin.queue_help"}}</p>
+    <a class="btn btn-primary" href="/admin/reports">{{.Locale.Text "admin.review"}}</a>
   </section>
   <section class="panel">
-    <h2>İzinler</h2>
-    <p class="muted">Misafir, üye ve yönetici grupları için genel veya forum bazlı erişimleri yönetin.</p>
-    <a class="btn btn-primary" href="/admin/permissions">İzin matrisini aç</a>
+    <h2>{{.Locale.Text "admin.permissions"}}</h2>
+    <p class="muted">{{.Locale.Text "admin.permissions_help"}}</p>
+    <a class="btn btn-primary" href="/admin/permissions">{{.Locale.Text "admin.open_matrix"}}</a>
   </section>
   <section class="panel">
-    <h2>Güvenlik</h2>
-    <p>Yönetim değişiklikleri oturum, CSRF doğrulaması ve işlem sınırıyla korunur.</p>
+    <h2>{{.Locale.Text "admin.security"}}</h2>
+    <p>{{.Locale.Text "admin.security_help"}}</p>
   </section>
 </div>
 {{template "footer" .}}

@@ -16,19 +16,19 @@ import (
 var adminSlugPattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
 
 var adminGroups = []adminGroupView{
-	{ID: perm.GroupGuest, Name: "Misafir"},
-	{ID: perm.GroupMember, Name: "Üye"},
-	{ID: perm.GroupAdmin, Name: "Yönetici"},
+	{ID: perm.GroupGuest, Name: "group.guest"},
+	{ID: perm.GroupMember, Name: "group.member"},
+	{ID: perm.GroupAdmin, Name: "group.admin"},
 }
 
 var permissionLabels = map[string]string{
-	perm.KeyAccess:       "Siteye erişim",
-	perm.KeyForumView:    "Forumları görüntüleme",
-	perm.KeyForumThread:  "Konu açma",
-	perm.KeyForumReply:   "Yanıt yazma",
-	perm.KeySearch:       "Arama",
-	perm.KeyUserRegister: "Kayıt olma",
-	perm.KeyAdmin:        "Yönetim paneli",
+	perm.KeyAccess:       "permission.access",
+	perm.KeyForumView:    "permission.view",
+	perm.KeyForumThread:  "permission.thread",
+	perm.KeyForumReply:   "permission.reply",
+	perm.KeySearch:       "permission.search",
+	perm.KeyUserRegister: "permission.register",
+	perm.KeyAdmin:        "permission.admin",
 }
 
 func (srv *Server) requireAdmin(w http.ResponseWriter, r *http.Request) *domain.User {
@@ -37,7 +37,7 @@ func (srv *Server) requireAdmin(w http.ResponseWriter, r *http.Request) *domain.
 		return nil
 	}
 	if !srv.can(r, me, perm.ScopeGlobal, 0, perm.KeyAdmin) {
-		srv.deny(w, r, "Bu işlem için yönetici izni gerekiyor.")
+		srv.deny(w, r, srv.uiLocale().Text("admin.denied"))
 		return nil
 	}
 	return me
@@ -47,7 +47,7 @@ func (srv *Server) adminHome(w http.ResponseWriter, r *http.Request) {
 	if srv.requireAdmin(w, r) == nil {
 		return
 	}
-	d := srv.base(r, "Yönetim", "admin", nil)
+	d := srv.base(r, srv.uiLocale().Text("admin.home"), "admin", nil)
 	srv.render(w, "admin", d)
 }
 
@@ -55,7 +55,7 @@ func (srv *Server) adminReports(w http.ResponseWriter, r *http.Request) {
 	if srv.requireAdmin(w, r) == nil {
 		return
 	}
-	d := srv.base(r, "Moderasyon raporları", "admin", []Crumb{{URL: "/admin", Title: "Yönetim"}})
+	d := srv.base(r, srv.uiLocale().Text("report.heading"), "admin", []Crumb{{URL: "/admin", Title: srv.uiLocale().Text("nav.admin")}})
 	for _, report := range srv.Repos.OpenReports(0, 100) {
 		_, ok := srv.Repos.Posts.Get(report.PostID)
 		if !ok {
@@ -68,16 +68,17 @@ func (srv *Server) adminReports(w http.ResponseWriter, r *http.Request) {
 }
 
 func (srv *Server) resolveReport(w http.ResponseWriter, r *http.Request) {
+	locale := srv.uiLocale()
 	admin := srv.requireAdmin(w, r)
 	if admin == nil {
 		return
 	}
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "invalid form", http.StatusBadRequest)
+		http.Error(w, locale.Text("auth.bad_form"), http.StatusBadRequest)
 		return
 	}
 	if !csrfOK(r, r.FormValue("csrf")) {
-		srv.deny(w, r, "CSRF doğrulaması başarısız.")
+		srv.deny(w, r, locale.Text("auth.bad_csrf"))
 		return
 	}
 	if ok, retry := srv.D.RL.Allow("resolve-report", strconv.FormatUint(admin.ID, 10), 60, time.Minute); !ok {
@@ -86,7 +87,7 @@ func (srv *Server) resolveReport(w http.ResponseWriter, r *http.Request) {
 	}
 	id := parseID(chi.URLParam(r, "reportID"))
 	if err := srv.Repos.ResolveReport(id, admin.ID); err != nil {
-		http.Error(w, "Rapor bulunamadı.", http.StatusNotFound)
+		http.Error(w, locale.Text("report.missing"), http.StatusNotFound)
 		return
 	}
 	http.Redirect(w, r, "/admin/reports", http.StatusSeeOther)
@@ -235,7 +236,7 @@ func (srv *Server) adminPermissions(w http.ResponseWriter, r *http.Request) {
 	if srv.requireAdmin(w, r) == nil {
 		return
 	}
-	d := srv.base(r, "İzin yönetimi", "admin", []Crumb{{URL: "/admin", Title: "Yönetim"}})
+	d := srv.base(r, srv.uiLocale().Text("admin.matrix"), "admin", []Crumb{{URL: "/admin", Title: srv.uiLocale().Text("nav.admin")}})
 	d.AdminScope = r.URL.Query().Get("scope")
 	if d.AdminScope == "" {
 		d.AdminScope = perm.ScopeGlobal

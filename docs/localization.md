@@ -17,7 +17,10 @@ unexpected account-creation failures are logged server-side rather than exposed
 in the UI. Thread pages, thread creation, reply/edit/report controls, reactions
 and poll controls also use the catalogs. Poll questions and choices remain
 user content. Administration and many server-side thread-action error messages
-still contain Turkish copy. The preview does not establish RTL support.
+still contain Turkish copy. The administration dashboard, report queue and
+permission matrix now use catalogs, including built-in group names and
+permission labels. Stored permission keys and form values are unchanged.
+The preview does not establish RTL support.
 
 When moving copy into the catalog, use complete phrases rather than joining
 translated fragments. Use positional placeholders for phrases where arguments

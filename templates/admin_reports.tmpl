@@ -1,14 +1,14 @@
 {{define "admin_reports"}}
 {{template "header" .}}
-<div class="toolbar"><h1>Moderasyon raporları</h1><a class="btn" href="/admin">Yönetime dön</a></div>
+<div class="toolbar"><h1>{{.Locale.Text "report.heading"}}</h1><a class="btn" href="/admin">{{.Locale.Text "admin.back"}}</a></div>
 {{range .Reports}}
 <section class="panel report-card">
-  <div class="report-meta"><strong>Rapor #{{.ID}}</strong><span class="muted">{{.Reporter}} · {{ago .CreatedAt}}</span></div>
+  <div class="report-meta"><strong>{{$.Locale.Text "report.number" (printf "%d" .ID)}}</strong><span class="muted">{{.Reporter}} · {{$.Locale.Ago .CreatedAt $.Now}}</span></div>
   <p>{{.Reason}}</p>
-  <div class="report-actions"><a class="btn" href="/t/{{.ThreadID}}/post/{{.PostID}}">Mesaja git</a>
-    <form method="post" action="/admin/reports/{{.ID}}/resolve"><input type="hidden" name="csrf" value="{{$.CSRF}}"><button class="btn btn-primary">Çözüldü</button></form>
+  <div class="report-actions"><a class="btn" href="/t/{{.ThreadID}}/post/{{.PostID}}">{{$.Locale.Text "report.go"}}</a>
+    <form method="post" action="/admin/reports/{{.ID}}/resolve"><input type="hidden" name="csrf" value="{{$.CSRF}}"><button class="btn btn-primary">{{$.Locale.Text "report.resolve"}}</button></form>
   </div>
 </section>
-{{else}}<div class="empty">Açık rapor yok.</div>{{end}}
+{{else}}<div class="empty">{{.Locale.Text "report.empty"}}</div>{{end}}
 {{template "footer" .}}
 {{end}}
