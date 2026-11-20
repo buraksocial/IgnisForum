@@ -25,20 +25,23 @@ const MaxArtifact = 256 << 20
 var ErrNoUpdate = errors.New("release is not newer than installed version")
 
 type Metadata struct {
-	Schema   int       `json:"schema"`
-	Product  string    `json:"product"`
-	Channel  string    `json:"channel"`
-	Version  string    `json:"version"`
-	Platform string    `json:"platform"`
-	Size     int64     `json:"size"`
-	SHA256   string    `json:"sha256"`
-	Issued   time.Time `json:"issued"`
-	Expires  time.Time `json:"expires"`
+	Schema        int       `json:"schema"`
+	Product       string    `json:"product"`
+	Channel       string    `json:"channel"`
+	Version       string    `json:"version"`
+	Platform      string    `json:"platform"`
+	Size          int64     `json:"size"`
+	SHA256        string    `json:"sha256"`
+	Issued        time.Time `json:"issued"`
+	Expires       time.Time `json:"expires"`
+	DataFormatMin int       `json:"data_format_min,omitempty"`
+	DataFormatMax int       `json:"data_format_max,omitempty"`
 }
 
 type Policy struct {
 	Channel, Installed, Platform string
 	Now                          time.Time
+	DataFormat                   int
 }
 
 var versionPattern = regexp.MustCompile(`^(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})$`)
@@ -75,6 +78,9 @@ func Verify(raw, signature []byte, key ed25519.PublicKey, p Policy) (Metadata, e
 	}
 	if m.Size < 1 || m.Size > MaxArtifact || !validHash(m.SHA256) {
 		return m, fmt.Errorf("invalid release artifact size or hash")
+	}
+	if p.DataFormat > 0 && (m.DataFormatMin < 1 || m.DataFormatMax < m.DataFormatMin || p.DataFormat < m.DataFormatMin || p.DataFormat > m.DataFormatMax) {
+		return m, fmt.Errorf("release data format is incompatible with installed format")
 	}
 	installed, err := version(p.Installed)
 	if err != nil {

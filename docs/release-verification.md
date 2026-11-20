@@ -116,8 +116,11 @@ retention cleanup.
 `ready.json` is an unsigned completion receipt, not an installation permit.
 Reverify the metadata/signature/artifact using the independently provisioned
 public key immediately before any future promotion; a staged artifact can be
-modified or expire afterwards. Schema 1 still does not express database-format
-compatibility. Publishing signed releases and their trust roots, compatibility
+modified or expire afterwards. Metadata may now include `data_format_min` and
+`data_format_max`; when the updater supplies its installed data format, a
+candidate outside that signed range is rejected. Omitting the updater policy
+keeps legacy check-only compatibility behavior, but production promotion must
+provide it. Publishing signed releases and their trust roots, compatibility
 gates, isolated backup/restore and migration rehearsal, authenticated health
 tests, atomic promotion and rollback remain required before automatic
 installation can be enabled. No staging timer or live installation is enabled

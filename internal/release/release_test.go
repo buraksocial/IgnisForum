@@ -66,4 +66,19 @@ func TestVerify(t *testing.T) {
 			}
 		})
 	}
+	compatible := base
+	compatible.DataFormatMin, compatible.DataFormatMax = 3, 5
+	raw, err := json.Marshal(compatible)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sig := ed25519.Sign(signer, raw)
+	if _, err := Verify(raw, sig, key, Policy{Channel: policy.Channel, Installed: policy.Installed, Platform: policy.Platform, Now: now, DataFormat: 4}); err != nil {
+		t.Fatalf("compatible data format rejected: %v", err)
+	}
+	for _, format := range []int{2, 6} {
+		if _, err := Verify(raw, sig, key, Policy{Channel: policy.Channel, Installed: policy.Installed, Platform: policy.Platform, Now: now, DataFormat: format}); err == nil {
+			t.Errorf("incompatible data format %d accepted", format)
+		}
+	}
 }
