@@ -94,6 +94,7 @@ func buildRouter(srv *Server) chi.Router {
 	rr.Use(chimw.Recoverer)
 	rr.Use(chimw.RequestID)
 	rr.Use(chimw.RealIP)
+	rr.Use(srv.securityHeaders)
 	rr.Use(srv.sessionMW) // resolves ignis_sid → context (one KV Get per request)
 
 	rr.Get("/healthz", srv.healthz)
@@ -144,6 +145,24 @@ func buildRouter(srv *Server) chi.Router {
 
 	rr.NotFound(srv.notFound)
 	return rr
+}
+
+// securityHeaders applies the baseline response policy to every route. More
+// restrictive handlers (media and attachment downloads) deliberately replace
+// Content-Security-Policy with a route-specific sandbox.
+func (srv *Server) securityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("Referrer-Policy", "same-origin")
+		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=(), usb=()")
+		w.Header().Set("Cross-Origin-Opener-Policy", "same-origin")
+		w.Header().Set("Cross-Origin-Resource-Policy", "same-origin")
+		if srv.D.Secure {
+			w.Header().Set("Strict-Transport-Security", "max-age=31536000")
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // --- session context ---
@@ -523,6 +542,9 @@ func (srv *Server) tooMany(w http.ResponseWriter, r *http.Request, retry time.Du
 
 func (srv *Server) render(w http.ResponseWriter, name string, data *pageData) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	// SSR pages can contain member identity, unread counts and permission-gated
+	// content; never let a browser or shared intermediary reuse one user's HTML.
+	w.Header().Set("Cache-Control", "private, no-store")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	if err := srv.tmpl.ExecuteTemplate(w, name, data); err != nil {
 		http.Error(w, "template: "+err.Error(), http.StatusInternalServerError)

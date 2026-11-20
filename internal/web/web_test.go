@@ -135,6 +135,49 @@ func TestAvatarFileServesOnlySafeImageNames(t *testing.T) {
 	}
 }
 
+func TestSecurityHeadersApplyToNormalAndSecureResponses(t *testing.T) {
+	ts, _, _, _, _ := newTestServer(t)
+	resp, err := ts.Client().Get(ts.URL + "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	for name, want := range map[string]string{
+		"Cache-Control":                "private, no-store",
+		"X-Content-Type-Options":       "nosniff",
+		"X-Frame-Options":              "DENY",
+		"Referrer-Policy":              "same-origin",
+		"Permissions-Policy":           "camera=(), microphone=(), geolocation=(), payment=(), usb=()",
+		"Cross-Origin-Opener-Policy":   "same-origin",
+		"Cross-Origin-Resource-Policy": "same-origin",
+	} {
+		if got := resp.Header.Get(name); got != want {
+			t.Errorf("%s = %q, want %q", name, got, want)
+		}
+	}
+	if got := resp.Header.Get("Strict-Transport-Security"); got != "" {
+		t.Errorf("insecure server sent HSTS: %q", got)
+	}
+
+	secureDeps := Deps{Secure: true}
+	secureTS := newTestServerWithSecureDeps(t, secureDeps)
+	defer secureTS.Close()
+	secureResp, err := secureTS.Client().Get(secureTS.URL + "/healthz")
+	if err != nil {
+		t.Fatal(err)
+	}
+	secureResp.Body.Close()
+	if got := secureResp.Header.Get("Strict-Transport-Security"); got != "max-age=31536000" {
+		t.Errorf("secure HSTS = %q", got)
+	}
+}
+
+func newTestServerWithSecureDeps(t *testing.T, deps Deps) *httptest.Server {
+	t.Helper()
+	ts, _, _, _, _ := newTestServerWithDeps(t, deps)
+	return ts
+}
+
 func TestThreadFollowAndViewUpdateMemberState(t *testing.T) {
 	ts, s, repos, _, _ := newTestServer(t)
 	member := register(t, ts, "threadfollower")
