@@ -4,7 +4,6 @@ import (
 	"log"
 	"net/http"
 	"net/url"
-	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -20,28 +19,32 @@ import (
 const appearanceKey = "settings:appearance"
 const pluginSettingsKey = "settings:plugins-disabled"
 
-var accentColor = regexp.MustCompile(`^#[0-9a-fA-F]{6}$`)
-
 type appearanceSettings struct {
-	DefaultTheme                string
-	Accent                      string
+	themeDesign
+	PreviousTheme               *themeDesign `json:",omitempty"`
 	Statistics, Presence, Media bool
 	Pinned                      []uint64
 	AdTitle, AdURL              string
 }
 
 func (srv *Server) appearance() appearanceSettings {
-	settings := appearanceSettings{DefaultTheme: "thred", Statistics: true}
-	if _, err := srv.Store.GetJSON(appearanceKey, &settings); err != nil {
-		return appearanceSettings{DefaultTheme: "thred"}
+	settings, err := srv.readAppearance()
+	if err != nil {
+		return appearanceSettings{themeDesign: themeDesign{DefaultTheme: "thred"}}
 	}
+	return settings
+}
+
+func (srv *Server) readAppearance() (appearanceSettings, error) {
+	settings := appearanceSettings{themeDesign: themeDesign{DefaultTheme: "thred"}, Statistics: true}
+	if _, err := srv.Store.GetJSON(appearanceKey, &settings); err != nil {
+		return appearanceSettings{}, err
+	}
+	settings.themeDesign = settings.themeDesign.sanitized()
 	if _, _, ok := srv.themes.Get(settings.DefaultTheme); !ok {
 		settings.DefaultTheme = "thred"
 	}
-	if !accentColor.MatchString(settings.Accent) {
-		settings.Accent = ""
-	}
-	return settings
+	return settings, nil
 }
 
 func (srv *Server) adminAppearance(w http.ResponseWriter, r *http.Request) {
@@ -49,15 +52,20 @@ func (srv *Server) adminAppearance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	d := srv.base(r, "Görünüm ve eklentiler", "admin", nil)
+	if theme, _, ok := srv.themes.Get(r.URL.Query().Get("preview")); ok {
+		d.ThemeID, d.ThemeVersion = theme.ID, theme.Version
+	}
+	srv.renderAppearance(w, r, d)
+}
+
+func (srv *Server) renderAppearance(w http.ResponseWriter, r *http.Request, d *pageData) {
+	w.Header().Set("Cache-Control", "private, no-store")
 	disabled, err := srv.disabledPlugins()
 	if err != nil {
 		http.Error(w, "Eklenti ayarları okunamadı.", http.StatusInternalServerError)
 		return
 	}
 	d.Extensions = srv.D.Plugins.ConfiguredStatus(disabled)
-	if theme, _, ok := srv.themes.Get(r.URL.Query().Get("preview")); ok {
-		d.ThemeID, d.ThemeVersion = theme.ID, theme.Version
-	}
 	srv.render(w, "admin_appearance", d)
 }
 
@@ -135,19 +143,24 @@ func (srv *Server) saveAppearance(w http.ResponseWriter, r *http.Request) {
 		srv.tooMany(w, r, retry)
 		return
 	}
+	intent := r.PostForm.Get("intent")
+	if intent == "restore" {
+		srv.restoreTheme(w, r, admin.ID)
+		return
+	}
+	if intent != "" && intent != "save" && intent != "preview" {
+		http.Error(w, "Geçersiz görünüm işlemi.", http.StatusBadRequest)
+		return
+	}
+	design, err := srv.parseThemeDesign(r.PostForm)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 	s := appearanceSettings{
-		DefaultTheme: r.PostForm.Get("default_theme"), Statistics: r.PostForm.Get("statistics") == "1",
+		themeDesign: design, Statistics: r.PostForm.Get("statistics") == "1",
 		Presence: r.PostForm.Get("presence") == "1", Media: r.PostForm.Get("media") == "1",
 		AdTitle: strings.TrimSpace(r.PostForm.Get("ad_title")), AdURL: strings.TrimSpace(r.PostForm.Get("ad_url")),
-	}
-	s.Accent = strings.TrimSpace(r.PostForm.Get("accent"))
-	if s.Accent != "" && !accentColor.MatchString(s.Accent) {
-		http.Error(w, "Vurgu rengini #RRGGBB biçiminde girin.", http.StatusBadRequest)
-		return
-	}
-	if _, _, ok := srv.themes.Get(s.DefaultTheme); !ok {
-		http.Error(w, "Geçersiz tema.", http.StatusBadRequest)
-		return
 	}
 	pins := strings.FieldsFunc(r.PostForm.Get("pinned"), func(r rune) bool { return r == ',' || r == ' ' || r == '\n' || r == '\r' || r == '\t' })
 	if len(pins) > 8 || utf8.RuneCountInString(s.AdTitle) > 100 || (s.AdTitle == "") != (s.AdURL == "") || (s.AdURL != "" && !externalHTTPS(s.AdURL)) {
@@ -166,12 +179,63 @@ func (srv *Server) saveAppearance(w http.ResponseWriter, r *http.Request) {
 			seen[id] = true
 		}
 	}
-	if err := srv.Store.PutJSON(appearanceKey, &s); err != nil {
+	if intent == "preview" {
+		d := srv.base(r, "Görünüm ve eklentiler", "admin", nil)
+		s.PreviousTheme = d.Appearance.PreviousTheme
+		d.Appearance, d.ThemeDraft = s, true
+		theme, _, _ := srv.themes.Get(s.DefaultTheme)
+		d.ThemeID, d.ThemeVersion = theme.ID, theme.Version
+		srv.renderAppearance(w, r, d)
+		return
+	}
+	if err := srv.persistAppearance(s); err != nil {
 		http.Error(w, "Ayarlar kaydedilemedi.", http.StatusInternalServerError)
 		return
 	}
 	log.Printf("appearance settings updated by admin=%d", admin.ID)
 	http.Redirect(w, r, "/admin/appearance", http.StatusSeeOther)
+}
+
+func (srv *Server) persistAppearance(s appearanceSettings) error {
+	srv.appearanceMu.Lock()
+	defer srv.appearanceMu.Unlock()
+	current, err := srv.readAppearance()
+	if err != nil {
+		return err
+	}
+	s.PreviousTheme = current.PreviousTheme
+	if current.themeDesign != s.themeDesign {
+		s.PreviousTheme = &current.themeDesign
+	}
+	return srv.Store.PutJSON(appearanceKey, &s)
+}
+
+func (srv *Server) restoreTheme(w http.ResponseWriter, r *http.Request, adminID uint64) {
+	srv.appearanceMu.Lock()
+	s, err := srv.readAppearance()
+	status := http.StatusInternalServerError
+	if err == nil {
+		status = http.StatusConflict
+		if previous := s.PreviousTheme; previous != nil {
+			if _, _, installed := srv.themes.Get(previous.DefaultTheme); installed {
+				s.themeDesign, s.PreviousTheme = previous.sanitized(), nil
+				status = http.StatusSeeOther
+				if err = srv.Store.PutJSON(appearanceKey, &s); err != nil {
+					status = http.StatusInternalServerError
+				}
+			}
+		}
+	}
+	srv.appearanceMu.Unlock()
+	switch status {
+	case http.StatusSeeOther:
+		log.Printf("previous theme restored by admin=%d", adminID)
+		http.Redirect(w, r, "/admin/appearance", status)
+	case http.StatusConflict:
+		http.Error(w, "Geri alınabilir önceki tema ayarı yok veya tema artık kurulu değil.", status)
+	default:
+		http.Error(w, "Tema ayarları geri alınamadı.", status)
+	}
 }
 
 func externalHTTPS(raw string) bool {

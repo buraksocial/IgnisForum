@@ -64,6 +64,7 @@ type Server struct {
 	tmpl             *template.Template
 	presence         memberPresence
 	pluginSettingsMu sync.Mutex
+	appearanceMu     sync.Mutex
 }
 
 // New builds the router with the M2 surface (content + auth). `assets` is the
@@ -191,6 +192,7 @@ type Crumb struct{ URL, Title string }
 type pageData struct {
 	Locale     *uiLocale
 	Appearance appearanceSettings
+	ThemeDraft bool
 	Extensions []plugin.Status
 	Sidebar    sidebarView
 	PreviewURL string

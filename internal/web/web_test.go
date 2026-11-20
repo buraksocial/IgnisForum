@@ -358,7 +358,13 @@ func TestReplyNotificationCanBeReadByRecipient(t *testing.T) {
 	if created.StatusCode != http.StatusSeeOther {
 		t.Fatalf("thread create status=%d", created.StatusCode)
 	}
-	threadID := repos.Threads.List(2, "new", 0, 1)[0]
+	// The seed and the new thread can share a timestamp. Use the creation
+	// response instead of guessing which tied thread sorts first.
+	location := created.Header.Get("Location")
+	threadID := parseID(strings.TrimPrefix(location, "/t/"))
+	if !strings.HasPrefix(location, "/t/") || threadID == 0 {
+		t.Fatalf("unexpected thread location %q", location)
+	}
 	actor := register(t, ts, "notifactor")
 	csrf = mustFindCSRF(t, actor, ts.URL+"/t/"+itoa(threadID))
 	reply := formPost(t, actor, ts.URL+"/t/"+itoa(threadID)+"/reply", url.Values{"csrf": {csrf}, "message": {"new reply"}})

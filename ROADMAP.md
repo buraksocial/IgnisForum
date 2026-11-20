@@ -43,6 +43,8 @@ The old forum and its MariaDB data remain authoritative until cutover acceptance
 - [x] Add an administrator settings page for built-in announcement, statistics,
   presence, sponsored-link and external media modules; list installed WASM
   packages and preview/select installed themes.
+- [x] Add bounded theme overrides with a private draft preview and one-step
+  settings rollback independent of widget and WASM preferences.
 - [x] Start the locale catalogs with shared navigation, home/widgets, latest,
   search, tags, notifications, 404 and external media. Keep English preview-only.
 - [ ] Add a complete interface message catalog (including server errors and

@@ -1,5 +1,5 @@
 {{define "header"}}<!doctype html>
-<html lang="{{.Locale.Tag}}" dir="{{.Locale.Direction}}" data-theme="{{.ThemeID}}" data-color-scheme="light"{{if .Appearance.Accent}} style="--color-brand:{{.Appearance.Accent}}"{{end}}>
+<html lang="{{.Locale.Tag}}" dir="{{.Locale.Direction}}" data-theme="{{.ThemeID}}" data-color-scheme="light"{{with .Appearance.CSS}} style="{{.}}"{{end}}>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">

@@ -67,3 +67,14 @@ release. Do not expose the plugin directory as a web upload destination.
   decides whether they download or open. This is not a file upload service.
 - Preview an installed theme on the settings page without changing preferences.
   Saving the default applies to users without an explicit theme preference.
+- Customize the accent color, font preset, maximum site width, and corner
+  radius. An empty field keeps the active theme's default. Overrides apply
+  also to users who picked another installed theme, when that theme uses the
+  standard CSS variables. No raw CSS or external fonts are accepted here.
+- Preview a draft in the administration page before saving. Preview does not
+  publish it. Use the color-scheme toggle to check the accent on both light
+  and dark backgrounds, especially links. The accent fill gets an automatic
+  contrasting foreground, but that does not guarantee link contrast.
+- Restore the previous saved theme settings in one step. The rollback survives
+  restarts and doesn't change announcements, advertising, media, or WASM
+  preferences. This does not restore theme package files.

@@ -44,7 +44,7 @@ func TestAppearanceAdministrationAndSidebar(t *testing.T) {
 		t.Fatal("active widget missing for member")
 	}
 	_, body, _ := getBody(t, guest, ts.URL+"/")
-	for _, want := range []string{`data-theme="ember"`, `style="--color-brand:#4F83FF"`, "Sabit Duyurular", "Forum İstatistikleri", "Çevrimiçi Üyeler", "Sponsor", `rel="sponsored nofollow noopener noreferrer"`} {
+	for _, want := range []string{`data-theme="ember"`, `style="--color-brand:#4F83FF;--color-brand-contrast:#000000;"`, "Sabit Duyurular", "Forum İstatistikleri", "Çevrimiçi Üyeler", "Sponsor", `rel="sponsored nofollow noopener noreferrer"`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("guest sidebar missing %q", want)
 		}

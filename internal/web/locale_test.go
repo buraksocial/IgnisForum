@@ -78,7 +78,7 @@ func TestLocaleHTTPPreview(t *testing.T) {
 	}
 
 	preview, st, repos, _, _ := newTestServerWithDeps(t, Deps{PreviewLocale: "en"})
-	if err := st.PutJSON(appearanceKey, appearanceSettings{DefaultTheme: "thred", Statistics: true, Media: true}); err != nil {
+	if err := st.PutJSON(appearanceKey, appearanceSettings{themeDesign: themeDesign{DefaultTheme: "thred"}, Statistics: true, Media: true}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := repos.Posts.Create(3, 1, "[img]https://example.org/photo.png[/img]"); err != nil {
