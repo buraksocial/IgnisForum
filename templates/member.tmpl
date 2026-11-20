@@ -4,31 +4,31 @@
   <h1>{{.Profile.Username}}</h1>
   {{if .Profile.Title}}<p>{{.Profile.Title}}</p>{{end}}
   <dl>
-    <dt>Üyelik tarihi</dt><dd>{{ago .Profile.JoinedAt}}</dd>
-    <dt>Mesaj</dt><dd>{{.ProfilePostCount}}</dd>
-    <dt>Beğeni puanı</dt><dd>{{.Profile.LikeScore}}</dd>
+    <dt>{{.Locale.Text "profile.joined"}}</dt><dd>{{.Locale.Ago .Profile.JoinedAt .Now}}</dd>
+    <dt>{{.Locale.Text "profile.posts"}}</dt><dd>{{.ProfilePostCount}}</dd>
+    <dt>{{.Locale.Text "profile.likes"}}</dt><dd>{{.Profile.LikeScore}}</dd>
   </dl>
   {{if .Profile.Signature}}<p class="muted">{{.Profile.Signature}}</p>{{end}}
 </section>
 {{if and .Me (eq .Me.ID .Profile.ID)}}
 <section class="panel">
-  <h2>Profili düzenle</h2>
+  <h2>{{.Locale.Text "profile.edit"}}</h2>
   <form method="post" action="/members/{{.Profile.ID}}/profile">
     <input type="hidden" name="csrf" value="{{.CSRF}}">
-    <label>Üye başlığı<input name="title" maxlength="60" value="{{.Profile.Title}}"></label>
-    <label>İmza<textarea name="signature" maxlength="500" rows="3">{{.Profile.Signature}}</textarea></label>
-    <button class="btn btn-primary" type="submit">Kaydet</button>
+    <label>{{.Locale.Text "profile.title"}}<input name="title" maxlength="60" value="{{.Profile.Title}}"></label>
+    <label>{{.Locale.Text "profile.signature"}}<textarea name="signature" maxlength="500" rows="3">{{.Profile.Signature}}</textarea></label>
+    <button class="btn btn-primary" type="submit">{{.Locale.Text "profile.save"}}</button>
   </form>
 </section>
 {{end}}
 <section class="panel">
-  <h2>Son mesajlar</h2>
+  <h2>{{.Locale.Text "profile.recent"}}</h2>
   {{if .ProfilePosts}}
     {{range .ProfilePosts}}<article class="profile-post">
       <h3><a href="/t/{{.ThreadID}}">{{.ThreadTitle}}</a></h3>
-      <time>{{ago .Date}}</time><div class="post-body">{{.Message}}</div>
+      <time>{{$.Locale.Ago .Date $.Now}}</time><div class="post-body">{{.Message}}</div>
     </article>{{end}}
-  {{else}}<p class="muted">Görüntülenebilir mesaj yok.</p>{{end}}
+  {{else}}<p class="muted">{{.Locale.Text "profile.empty"}}</p>{{end}}
 </section>
 {{template "footer" .}}
 {{end}}

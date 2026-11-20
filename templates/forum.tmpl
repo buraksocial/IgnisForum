@@ -2,29 +2,29 @@
 {{template "header" .}}
 <div class="toolbar">
   <h1>{{.Node.Title}}</h1>
-  {{if .CanThread}}<a class="btn btn-primary" href="/f/{{.Node.ID}}/new">Yeni Konu</a>{{end}}
+  {{if .CanThread}}<a class="btn btn-primary" href="/f/{{.Node.ID}}/new">{{.Locale.Text "forum.new"}}</a>{{end}}
 </div>
 {{if .Node.Description}}<p class="muted">{{.Node.Description}}</p>{{end}}
 <div class="sort-tabs">
-  <a href="/f/{{.Node.ID}}?sort=last" class="{{if or (eq .Sort "last") (eq .Sort "")}}active{{end}}">Son mesaj</a>
-  <a href="/f/{{.Node.ID}}?sort=new" class="{{if eq .Sort "new"}}active{{end}}">Konu başlangıcı</a>
-  <a href="/f/{{.Node.ID}}?sort=posts" class="{{if eq .Sort "posts"}}active{{end}}">Yanıt sayısı</a>
-  <a href="/f/{{.Node.ID}}?sort=views" class="{{if eq .Sort "views"}}active{{end}}">Görüntülenme</a>
+  <a href="/f/{{.Node.ID}}?sort=last" class="{{if or (eq .Sort "last") (eq .Sort "")}}active{{end}}">{{.Locale.Text "forum.last"}}</a>
+  <a href="/f/{{.Node.ID}}?sort=new" class="{{if eq .Sort "new"}}active{{end}}">{{.Locale.Text "forum.started"}}</a>
+  <a href="/f/{{.Node.ID}}?sort=posts" class="{{if eq .Sort "posts"}}active{{end}}">{{.Locale.Text "forum.replies"}}</a>
+  <a href="/f/{{.Node.ID}}?sort=views" class="{{if eq .Sort "views"}}active{{end}}">{{.Locale.Text "forum.views"}}</a>
 </div>
 <table class="thread-table"><tbody>
-  {{if not .Threads}}<tr><td class="empty">Bu forumda henüz konu yok.</td></tr>{{end}}
+  {{if not .Threads}}<tr><td class="empty">{{.Locale.Text "forum.empty"}}</td></tr>{{end}}
   {{range .Threads}}
   <tr class="thread-row">
     <td>
       <a class="thread-title" href="/t/{{.ID}}">{{.Title}}</a>
-      <div class="thread-by">{{.Author}} · {{ago .Date}}</div>
+      <div class="thread-by">{{.Author}} · {{$.Locale.Ago .Date $.Now}}</div>
     </td>
-    <td class="thread-counts"><div class="num">{{.ReplyCount}}</div><div class="lbl">yanıt</div></td>
-    <td class="thread-counts"><div class="num">{{.ViewCount}}</div><div class="lbl">görüntülenme</div></td>
+    <td class="thread-counts"><div class="num">{{.ReplyCount}}</div><div class="lbl">{{$.Locale.Text "latest.replies"}}</div></td>
+    <td class="thread-counts"><div class="num">{{.ViewCount}}</div><div class="lbl">{{$.Locale.Text "latest.views"}}</div></td>
     <td class="forum-last">
       {{if .LastPostID}}
       <a class="lp-title" href="/t/{{.ID}}/post/{{.LastPostID}}">{{.LastPostTitle}}</a>
-      <div class="lp-meta">{{.LastPoster}} · {{ago .LastPostTime}}</div>
+      <div class="lp-meta">{{.LastPoster}} · {{$.Locale.Ago .LastPostTime $.Now}}</div>
       {{end}}
     </td>
   </tr>

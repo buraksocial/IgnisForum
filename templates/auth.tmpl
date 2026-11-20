@@ -1,43 +1,43 @@
 {{define "login"}}
 {{template "header" .}}
-<h1>Giriş Yap</h1>
+<h1>{{.Locale.Text "auth.login"}}</h1>
 {{if .FormError}}<div class="alert alert-error">{{.FormError}}</div>{{end}}
 <form method="post" action="/login" style="max-width:420px">
   <input type="hidden" name="csrf" value="{{.CSRF}}">
   <input type="hidden" name="next" value="{{.RedirectBack}}">
-  <div class="form-row"><label>Kullanıcı adı veya e-posta</label>
-    <input type="text" name="username" required autofocus maxlength="120" autocomplete="username"></div>
-  <div class="form-row"><label>Şifre</label>
-    <input type="password" name="password" required maxlength="200" autocomplete="current-password"></div>
-  <div class="form-row"><label class="chk"><input type="checkbox" name="remember" value="1" {{if .Remember}}checked{{end}}> Beni hatırla</label></div>
-  <div class="form-row"><button type="submit" class="btn btn-primary">Giriş Yap</button>
-    <a class="btn" href="/register">Kayıt ol</a></div>
+  <div class="form-row"><label for="login-identity">{{.Locale.Text "auth.identity"}}</label>
+    <input id="login-identity" type="text" name="username" required autofocus maxlength="120" autocomplete="username"></div>
+  <div class="form-row"><label for="login-password">{{.Locale.Text "auth.password"}}</label>
+    <input id="login-password" type="password" name="password" required maxlength="200" autocomplete="current-password"></div>
+  <div class="form-row"><label class="chk"><input type="checkbox" name="remember" value="1" {{if .Remember}}checked{{end}}> {{.Locale.Text "auth.remember"}}</label></div>
+  <div class="form-row"><button type="submit" class="btn btn-primary">{{.Locale.Text "auth.login"}}</button>
+    <a class="btn" href="/register">{{.Locale.Text "auth.register"}}</a></div>
 </form>
 {{template "footer" .}}
 {{end}}
 
 {{define "register"}}
 {{template "header" .}}
-<h1>Kayıt Ol</h1>
+<h1>{{.Locale.Text "auth.register"}}</h1>
 {{if .FormError}}<div class="alert alert-error">{{.FormError}}</div>{{end}}
 <form method="post" action="/register" style="max-width:420px">
   <input type="hidden" name="csrf" value="{{.CSRF}}">
-  <div class="form-row"><label>Kullanıcı adı</label>
-    <input type="text" name="username" required minlength="2" maxlength="30" autocomplete="username" placeholder="en az 2 karakter, harf ile başlayın"></div>
-  <div class="form-row"><label>E-posta</label>
-    <input type="email" name="email" required maxlength="160" autocomplete="email"></div>
-  <div class="form-row"><label>Şifre</label>
-    <input type="password" name="password" required minlength="8" maxlength="200" autocomplete="new-password" placeholder="en az 8 karakter"></div>
-  <div class="form-row"><button type="submit" class="btn btn-primary">Hesap Oluştur</button>
-    <a class="btn" href="/login">Giriş</a></div>
+  <div class="form-row"><label for="register-username">{{.Locale.Text "auth.username"}}</label>
+    <input id="register-username" type="text" name="username" required minlength="2" maxlength="30" autocomplete="username" placeholder="{{.Locale.Text "auth.username_hint"}}"></div>
+  <div class="form-row"><label for="register-email">{{.Locale.Text "auth.email"}}</label>
+    <input id="register-email" type="email" name="email" required maxlength="160" autocomplete="email"></div>
+  <div class="form-row"><label for="register-password">{{.Locale.Text "auth.password"}}</label>
+    <input id="register-password" type="password" name="password" required minlength="8" maxlength="200" autocomplete="new-password" placeholder="{{.Locale.Text "auth.password_hint"}}"></div>
+  <div class="form-row"><button type="submit" class="btn btn-primary">{{.Locale.Text "auth.create"}}</button>
+    <a class="btn" href="/login">{{.Locale.Text "nav.login"}}</a></div>
 </form>
 {{template "footer" .}}
 {{end}}
 
 {{define "error"}}
 {{template "header" .}}
-<h1>Bu işlem geçersiz</h1>
+<h1>{{.Locale.Text "error.heading"}}</h1>
 {{if .FormError}}<div class="alert alert-error">{{.FormError}}</div>{{end}}
-<p><a class="btn" href="javascript:history.back()">Geri dön</a> <a class="btn btn-primary" href="/">Ana Sayfa</a></p>
+<p><button type="button" class="btn" onclick="history.back()">{{.Locale.Text "error.back"}}</button> <a class="btn btn-primary" href="/">{{.Locale.Text "nav.home"}}</a></p>
 {{template "footer" .}}
 {{end}}

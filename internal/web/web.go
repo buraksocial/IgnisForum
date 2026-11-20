@@ -511,8 +511,8 @@ func (srv *Server) tooMany(w http.ResponseWriter, r *http.Request, retry time.Du
 	}
 	w.Header().Set("Retry-After", strconv.Itoa(int(retry.Seconds())))
 	w.WriteHeader(http.StatusTooManyRequests)
-	d := srv.base(r, "Çok fazla deneme", "", nil)
-	d.FormError = fmt.Sprintf("Çok fazla deneme yaptınız. Lütfen %d saniye sonra tekrar deneyin.", int(retry.Seconds()))
+	d := srv.base(r, srv.uiLocale().Text("error.throttled"), "", nil)
+	d.FormError = d.Locale.Count("error.retry", int(retry.Seconds()))
 	srv.render(w, "error", d)
 }
 
@@ -703,7 +703,7 @@ func (srv *Server) forum(w http.ResponseWriter, r *http.Request) {
 			srv.requireAuth(w, r) // guests → login (with next=)
 			return
 		}
-		srv.deny(w, r, "Bu forumu görüntüleme izniniz yok.")
+		srv.deny(w, r, d.Locale.Text("forum.denied"))
 		return
 	}
 	sortKey := r.URL.Query().Get("sort")
@@ -1346,26 +1346,27 @@ func (srv *Server) memberProfile(w http.ResponseWriter, r *http.Request) {
 }
 
 func (srv *Server) saveMemberProfile(w http.ResponseWriter, r *http.Request) {
+	locale := srv.uiLocale()
 	me := srv.requireAuth(w, r)
 	if me == nil {
 		return
 	}
 	userID := parseID(chi.URLParam(r, "userID"))
 	if userID != me.ID {
-		srv.deny(w, r, "Yalnızca kendi profilinizi düzenleyebilirsiniz.")
+		srv.deny(w, r, locale.Text("profile.denied"))
 		return
 	}
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "Geçersiz form.", http.StatusBadRequest)
+		http.Error(w, locale.Text("auth.bad_form"), http.StatusBadRequest)
 		return
 	}
 	if !csrfOK(r, r.FormValue("csrf")) {
-		srv.deny(w, r, "CSRF doğrulaması başarısız.")
+		srv.deny(w, r, locale.Text("auth.bad_csrf"))
 		return
 	}
 	title, signature := strings.TrimSpace(r.FormValue("title")), strings.TrimSpace(r.FormValue("signature"))
 	if utf8.RuneCountInString(title) > 60 || utf8.RuneCountInString(signature) > 500 {
-		http.Error(w, "Başlık en fazla 60, imza en fazla 500 karakter olabilir.", http.StatusBadRequest)
+		http.Error(w, locale.Text("profile.too_long"), http.StatusBadRequest)
 		return
 	}
 	if allowed, retry := srv.D.RL.Allow("edit-profile", itoa(me.ID), 5, time.Minute); !allowed {
@@ -1373,7 +1374,7 @@ func (srv *Server) saveMemberProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := srv.D.Users.UpdateProfile(me.ID, title, signature); err != nil {
-		http.Error(w, "Profil kaydedilemedi.", http.StatusInternalServerError)
+		http.Error(w, locale.Text("profile.failed"), http.StatusInternalServerError)
 		return
 	}
 	http.Redirect(w, r, "/members/"+itoa(me.ID), http.StatusSeeOther)
@@ -1465,13 +1466,13 @@ func validPreCSRF(r *http.Request) bool {
 }
 
 func (srv *Server) loginForm(w http.ResponseWriter, r *http.Request) {
-	d := srv.base(r, "Giriş", "", nil)
+	d := srv.base(r, srv.uiLocale().Text("auth.login"), "", nil)
 	if d.Me != nil {
 		http.Redirect(w, r, "/", http.StatusFound)
 		return
 	}
 	if d.CSRF, _ = srv.issuePreCSRF(w); d.CSRF == "" {
-		http.Error(w, "csrf token unavailable", http.StatusInternalServerError)
+		http.Error(w, d.Locale.Text("auth.csrf_unavailable"), http.StatusInternalServerError)
 		return
 	}
 	d.RedirectBack = safeNext(r.URL.Query().Get("next"))
@@ -1487,21 +1488,21 @@ func safeNext(next string) string {
 }
 
 func (srv *Server) loginSubmit(w http.ResponseWriter, r *http.Request) {
-	d := srv.base(r, "Giriş", "", nil)
+	d := srv.base(r, srv.uiLocale().Text("auth.login"), "", nil)
 	d.Remember = r.FormValue("remember") != ""
 	d.RedirectBack = safeNext(r.FormValue("next"))
-	fail := func(status int, msg string) {
-		d.FormError = msg
+	fail := func(status int, key string) {
+		d.FormError = d.Locale.Text(key)
 		w.WriteHeader(status)
 		srv.render(w, "login", d)
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, maxBody)
 	if err := r.ParseForm(); err != nil || r.ContentLength > maxBody {
-		fail(http.StatusBadRequest, "İstek çözümlenemedi.")
+		fail(http.StatusBadRequest, "auth.bad_form")
 		return
 	}
 	if !validPreCSRF(r) {
-		fail(http.StatusForbidden, "Oturum doğrulaması başarısız (CSRF). Formu yenileyip tekrar deneyin.")
+		fail(http.StatusForbidden, "auth.bad_csrf")
 		return
 	}
 	ident := strings.TrimSpace(r.FormValue("username"))
@@ -1522,7 +1523,7 @@ func (srv *Server) loginSubmit(w http.ResponseWriter, r *http.Request) {
 
 	usr, sess, err := srv.D.Users.Login(ident, pw, d.Remember, r.RemoteAddr)
 	if err != nil {
-		fail(http.StatusUnauthorized, "Geçersiz kullanıcı adı veya şifre.")
+		fail(http.StatusUnauthorized, "auth.bad_credentials")
 		return
 	}
 	srv.setSessionCookie(w, sess)
@@ -1531,40 +1532,40 @@ func (srv *Server) loginSubmit(w http.ResponseWriter, r *http.Request) {
 }
 
 func (srv *Server) registerForm(w http.ResponseWriter, r *http.Request) {
-	d := srv.base(r, "Kayıt", "", nil)
+	d := srv.base(r, srv.uiLocale().Text("auth.register"), "", nil)
 	if d.Me != nil {
 		http.Redirect(w, r, "/", http.StatusFound)
 		return
 	}
 	if !srv.can(r, nil, perm.ScopeGlobal, 0, perm.KeyUserRegister) {
-		srv.deny(w, r, "Kayıt şu anda kapalı.")
+		srv.deny(w, r, d.Locale.Text("auth.closed"))
 		return
 	}
 	if d.CSRF, _ = srv.issuePreCSRF(w); d.CSRF == "" {
-		http.Error(w, "csrf token unavailable", http.StatusInternalServerError)
+		http.Error(w, d.Locale.Text("auth.csrf_unavailable"), http.StatusInternalServerError)
 		return
 	}
 	srv.render(w, "register", d)
 }
 
 func (srv *Server) registerSubmit(w http.ResponseWriter, r *http.Request) {
-	d := srv.base(r, "Kayıt", "", nil)
-	fail := func(status int, msg string) {
-		d.FormError = msg
+	d := srv.base(r, srv.uiLocale().Text("auth.register"), "", nil)
+	fail := func(status int, key string) {
+		d.FormError = d.Locale.Text(key)
 		w.WriteHeader(status)
 		srv.render(w, "register", d)
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, maxBody)
 	if err := r.ParseForm(); err != nil || r.ContentLength > maxBody {
-		fail(http.StatusBadRequest, "İstek çözümlenemedi.")
+		fail(http.StatusBadRequest, "auth.bad_form")
 		return
 	}
 	if !validPreCSRF(r) {
-		fail(http.StatusForbidden, "Oturum doğrulaması başarısız (CSRF). Formu yenileyip tekrar deneyin.")
+		fail(http.StatusForbidden, "auth.bad_csrf")
 		return
 	}
 	if !srv.can(r, nil, perm.ScopeGlobal, 0, perm.KeyUserRegister) {
-		srv.deny(w, r, "Kayıt şu anda kapalı.")
+		srv.deny(w, r, d.Locale.Text("auth.closed"))
 		return
 	}
 	// 3 registrations / hour per IP — public endpoint, must be throttled.
@@ -1577,18 +1578,25 @@ func (srv *Server) registerSubmit(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		switch {
 		case errors.Is(err, auth.ErrUsernameTaken):
-			fail(http.StatusConflict, "Bu kullanıcı adı zaten alınmış.")
+			fail(http.StatusConflict, "auth.username_taken")
 		case errors.Is(err, auth.ErrEmailTaken):
-			fail(http.StatusConflict, "Bu e-posta ile başka bir hesap var.")
+			fail(http.StatusConflict, "auth.email_taken")
+		case errors.Is(err, auth.ErrBadUsername):
+			fail(http.StatusBadRequest, "auth.bad_username")
+		case errors.Is(err, auth.ErrBadEmail):
+			fail(http.StatusBadRequest, "auth.bad_email")
+		case errors.Is(err, auth.ErrShortPassword):
+			fail(http.StatusBadRequest, "auth.short_password")
 		default:
-			fail(http.StatusBadRequest, err.Error())
+			log.Printf("account creation failed: %v", err)
+			fail(http.StatusInternalServerError, "auth.register_failed")
 		}
 		return
 	}
 	// Auto-login on success (XenForo behaviour).
 	sess, err := srv.D.Auth.CreateSession(usr.ID, true, r.RemoteAddr)
 	if err != nil {
-		fail(http.StatusInternalServerError, "Oturum kurulamadı.")
+		fail(http.StatusInternalServerError, "auth.session_failed")
 		return
 	}
 	srv.setSessionCookie(w, sess)

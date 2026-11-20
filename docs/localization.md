@@ -7,11 +7,14 @@ incomplete preview, not a production setting. Remove the key to return to
 Turkish. Unsupported values fail configuration loading.
 
 The shared layout, home widgets, latest activity, search, tag pages,
-notifications, 404 page and external media labels use message keys in
+notifications, 404 page, authentication forms, forum listings, member profiles
+and external media labels use message keys in
 `internal/web/locale.go`. The catalog handles the plural rules of its two
 current languages and formats relative dates against the request timestamp.
 User posts, forum titles, sponsor text and plugin notices are not translated.
-Other UI areas, including administration and authentication forms and errors,
+Authentication validation errors and profile-save errors are also cataloged;
+unexpected account-creation failures are logged server-side rather than exposed
+in the UI. Other UI areas, including administration and most thread actions,
 still contain Turkish copy. The preview does not establish RTL support.
 
 When moving copy into the catalog, use complete phrases rather than joining
