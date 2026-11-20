@@ -82,6 +82,13 @@ func testThemeDraftSaveAndRestore(t *testing.T, tag string) {
 	if _, err := st.GetJSON(appearanceKey, &before); err != nil || before.PreviousTheme == nil || before.PreviousTheme.DefaultTheme != "thred" {
 		t.Fatalf("saved history not retained: %+v, %v", before.PreviousTheme, err)
 	}
+	if len(before.History) != 2 || before.History[0].Action != "history.appearance_save" || before.History[0].AdminID == 0 {
+		t.Fatalf("saved changes lack history: %+v", before.History)
+	}
+	// Saving identical effective settings must not flood the bounded history.
+	if resp := formPost(t, admin, path, form); resp.StatusCode != 303 {
+		t.Fatalf("no-op save: %d", resp.StatusCode)
+	}
 	restore := url.Values{"csrf": {"bad"}, "intent": {"restore"}}
 	if resp := formPost(t, admin, path, restore); resp.StatusCode != 403 {
 		t.Fatalf("restore without CSRF: %d", resp.StatusCode)
@@ -101,6 +108,22 @@ func testThemeDraftSaveAndRestore(t *testing.T, tag string) {
 	}
 	if resp := formPost(t, admin, path, restore); resp.StatusCode != 409 {
 		t.Fatalf("restore with no previous settings: %d", resp.StatusCode)
+	}
+	var after appearanceSettings
+	if _, err := st.GetJSON(appearanceKey, &after); err != nil || len(after.History) != 3 || after.History[2].Action != "history.theme_restore" || after.History[2].Target != "thred" {
+		t.Fatalf("restore history: %+v, %v", after.History, err)
+	}
+	_, body, _ = getBody(t, admin, path)
+	for _, key := range []string{"history.heading", "history.appearance_save", "history.theme_restore"} {
+		if !strings.Contains(body, locale.Text(key)) {
+			t.Errorf("history missing %s", key)
+		}
+	}
+	for _, client := range []*http.Client{member, guest} {
+		code, body, _ := getBody(t, client, path)
+		if code == 200 || strings.Contains(body, locale.Text("history.heading")) {
+			t.Fatal("settings history exposed to a non-administrator")
+		}
 	}
 }
 

@@ -49,6 +49,36 @@ health UI and version rollback are not implemented in the panel. Filesystem
 package changes must be made by a trusted operator and deployed as an atomic
 release. Do not expose the plugin directory as a web upload destination.
 
+## Settings history and compatibility
+
+The administrator-only appearance page shows the latest 20 recorded settings
+changes across appearance saves, theme restores and explicit WASM enable/disable
+actions. Events contain the administrator's stable user ID, UTC timestamp,
+action and target theme/package ID. Draft previews, denied/invalid requests and
+unchanged effective settings do not add events. Dependency suspension is a
+derived status, not a separate administrator action.
+
+At most 100 events are retained for appearance settings and 100 for plugin
+preferences. Older events are dropped on the next successful change. Each
+settings change and its event use a single primary database write; offline
+database backups include both. Public page rendering skips decoding history
+entries. This is bounded operational history, not an immutable security log;
+it does not record authentication failures, package-file changes, old/new
+setting values or all other administrative actions. It has no separate export
+or erasure interface, and database operators can alter it.
+
+Appearance records gain an optional `History` field. The plugin preference key
+`settings:plugins-disabled` now writes a version-1 envelope with `version`,
+`Disabled` and `History` fields. Existing bare disabled-ID maps are read without
+losing preferences; they convert when a real preference change is saved. No
+historical events are fabricated. Malformed preference maps and unknown-version
+plugin records block preference changes and hook execution rather than enabling
+packages.
+Older application versions cannot read the envelope: rolling back the binary
+requires its matching pre-upgrade database snapshot. Do not point an older
+binary at an upgraded database. The one-step theme rollback does not downgrade
+the schema or erase recorded history.
+
 ## Built-in modules
 
 - Pin up to eight existing discussions by ID. The sidebar checks current forum

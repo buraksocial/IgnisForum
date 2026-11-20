@@ -68,6 +68,9 @@ The old forum and its MariaDB data remain authoritative until cutover acceptance
   with staging verification, backup and rollback, separate from the web process.
 - [x] Allow administrators to enable/disable individual WASM plugins without
   restart, with persistent settings and dependency-aware suspension.
+- [x] Retain bounded, administrator-visible history for appearance saves, theme
+  restores and explicit WASM state changes, atomic with each settings record;
+  verify legacy preferences, restart persistence and concurrent updates.
 - [ ] Add admin-managed installation/preview/configuration, durable audit events,
   and version rollback before treating extensions as complete.
 - [x] Build an isolated read-only Flarum staging importer for users, groups,

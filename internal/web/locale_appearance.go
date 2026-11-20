@@ -3,6 +3,15 @@ package web
 // Appearance copy is kept separate so the core catalog stays navigable.
 func init() {
 	for key, pair := range map[string][2]string{
+		"appearance.history_failed":     {"Ayar geçmişi okunamadı.", "Settings history could not be read."},
+		"history.heading":               {"Son ayar değişiklikleri", "Recent settings changes"},
+		"history.help":                  {"Son 20 işlem gösterilir; görünüm ve eklenti ayarları için ayrı ayrı en fazla 100 kayıt saklanır. Bu liste değiştirilemez bir güvenlik günlüğü değildir.", "The latest 20 events are shown; up to 100 are retained for appearance and plugin settings each. This is not a tamper-proof security log."},
+		"history.empty":                 {"Henüz kaydedilmiş ayar değişikliği yok.", "No settings changes have been recorded yet."},
+		"history.admin":                 {"Yönetici #%s", "Administrator #%s"},
+		"history.appearance_save":       {"Görünüm ayarları kaydedildi", "Appearance settings saved"},
+		"history.theme_restore":         {"Önceki tema ayarları geri alındı", "Previous theme settings restored"},
+		"history.plugin_enable":         {"Eklenti etkinleştirildi", "Plugin enabled"},
+		"history.plugin_disable":        {"Eklenti devre dışı bırakıldı", "Plugin disabled"},
 		"appearance.read_failed":        {"Eklenti ayarları okunamadı.", "Plugin settings could not be read."},
 		"appearance.bad_form":           {"Form doğrulanamadı.", "The form could not be verified."},
 		"appearance.bad_plugin_action":  {"Geçersiz eklenti işlemi.", "Invalid plugin action."},

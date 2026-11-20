@@ -33,6 +33,11 @@ languages. Literal server-side message lookups and template keys are checked
 against both catalogs; this detects missing keys, not untranslated hardcoded
 copy, translation quality or complete language support.
 
+The bounded appearance/plugin settings history also uses catalog action labels;
+stored events retain stable action keys, administrator IDs and target IDs rather
+than translated text. Tests exercise its administrator-only display in both
+current languages.
+
 When moving copy into the catalog, use complete phrases rather than joining
 translated fragments. Use positional placeholders for phrases where arguments
 may change order. Keep messages plain text so `html/template` escapes content

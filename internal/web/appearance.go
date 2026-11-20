@@ -26,10 +26,11 @@ type appearanceSettings struct {
 	Attachments                 bool
 	Pinned                      []uint64
 	AdTitle, AdURL              string
+	History                     []settingsEvent `json:",omitempty"`
 }
 
 func (srv *Server) appearance() appearanceSettings {
-	settings, err := srv.readAppearance()
+	settings, err := srv.readAppearanceRecord(false)
 	if err != nil {
 		return appearanceSettings{themeDesign: themeDesign{DefaultTheme: "thred"}}
 	}
@@ -37,8 +38,19 @@ func (srv *Server) appearance() appearanceSettings {
 }
 
 func (srv *Server) readAppearance() (appearanceSettings, error) {
+	return srv.readAppearanceRecord(true)
+}
+
+func (srv *Server) readAppearanceRecord(withHistory bool) (appearanceSettings, error) {
 	settings := appearanceSettings{themeDesign: themeDesign{DefaultTheme: "thred"}, Statistics: true}
-	if _, err := srv.Store.GetJSON(appearanceKey, &settings); err != nil {
+	var target any = &settings
+	if !withHistory {
+		target = &struct {
+			*appearanceSettings
+			History discardedSettingsHistory
+		}{appearanceSettings: &settings}
+	}
+	if _, err := srv.Store.GetJSON(appearanceKey, target); err != nil {
 		return appearanceSettings{}, err
 	}
 	settings.themeDesign = settings.themeDesign.sanitized()
@@ -61,19 +73,24 @@ func (srv *Server) adminAppearance(w http.ResponseWriter, r *http.Request) {
 
 func (srv *Server) renderAppearance(w http.ResponseWriter, r *http.Request, d *pageData) {
 	w.Header().Set("Cache-Control", "private, no-store")
-	disabled, err := srv.disabledPlugins()
+	preferences, err := srv.readPluginPreferences()
 	if err != nil {
 		http.Error(w, srv.uiLocale().Text("appearance.read_failed"), http.StatusInternalServerError)
 		return
 	}
-	d.Extensions = srv.D.Plugins.ConfiguredStatus(disabled)
+	d.Extensions = srv.D.Plugins.ConfiguredStatus(preferences.Disabled)
+	current, err := srv.readAppearance()
+	if err != nil {
+		http.Error(w, srv.uiLocale().Text("appearance.history_failed"), http.StatusInternalServerError)
+		return
+	}
+	d.SettingsHistory = recentSettingsEvents(current.History, preferences.History)
 	srv.render(w, "admin_appearance", d)
 }
 
 func (srv *Server) disabledPlugins() (map[string]bool, error) {
-	var disabled map[string]bool
-	_, err := srv.Store.GetJSON(pluginSettingsKey, &disabled)
-	return disabled, err
+	settings, err := srv.readPluginPreferencesRecord(false)
+	return settings.Disabled, err
 }
 
 func (srv *Server) savePluginState(w http.ResponseWriter, r *http.Request) {
@@ -105,7 +122,7 @@ func (srv *Server) savePluginState(w http.ResponseWriter, r *http.Request) {
 		srv.tooMany(w, r, retry)
 		return
 	}
-	if err := srv.setPluginDisabled(id, action == "disable"); err != nil {
+	if err := srv.setPluginDisabled(id, action == "disable", admin.ID); err != nil {
 		http.Error(w, srv.uiLocale().Text("appearance.plugin_save_failed"), http.StatusInternalServerError)
 		return
 	}
@@ -113,22 +130,28 @@ func (srv *Server) savePluginState(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/admin/appearance#wasm", http.StatusSeeOther)
 }
 
-func (srv *Server) setPluginDisabled(id string, value bool) error {
+func (srv *Server) setPluginDisabled(id string, value bool, adminID uint64) error {
 	srv.pluginSettingsMu.Lock()
 	defer srv.pluginSettingsMu.Unlock()
-	disabled, err := srv.disabledPlugins()
+	settings, err := srv.readPluginPreferences()
 	if err != nil {
 		return err
 	}
-	if disabled == nil {
-		disabled = make(map[string]bool)
+	if settings.Disabled[id] == value {
+		return nil
 	}
+	if settings.Disabled == nil {
+		settings.Disabled = make(map[string]bool)
+	}
+	action := "history.plugin_enable"
 	if value {
-		disabled[id] = true
+		settings.Disabled[id] = true
+		action = "history.plugin_disable"
 	} else {
-		delete(disabled, id)
+		delete(settings.Disabled, id)
 	}
-	return srv.Store.PutJSON(pluginSettingsKey, disabled)
+	settings.History = appendSettingsEvent(settings.History, adminID, action, id)
+	return srv.writePluginPreferences(settings)
 }
 
 func (srv *Server) saveAppearance(w http.ResponseWriter, r *http.Request) {
@@ -190,7 +213,7 @@ func (srv *Server) saveAppearance(w http.ResponseWriter, r *http.Request) {
 		srv.renderAppearance(w, r, d)
 		return
 	}
-	if err := srv.persistAppearance(s); err != nil {
+	if err := srv.persistAppearance(s, admin.ID); err != nil {
 		http.Error(w, srv.uiLocale().Text("appearance.save_failed"), http.StatusInternalServerError)
 		return
 	}
@@ -198,7 +221,7 @@ func (srv *Server) saveAppearance(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/admin/appearance", http.StatusSeeOther)
 }
 
-func (srv *Server) persistAppearance(s appearanceSettings) error {
+func (srv *Server) persistAppearance(s appearanceSettings, adminID uint64) error {
 	srv.appearanceMu.Lock()
 	defer srv.appearanceMu.Unlock()
 	current, err := srv.readAppearance()
@@ -208,6 +231,10 @@ func (srv *Server) persistAppearance(s appearanceSettings) error {
 	s.PreviousTheme = current.PreviousTheme
 	if current.themeDesign != s.themeDesign {
 		s.PreviousTheme = &current.themeDesign
+	}
+	s.History = current.History
+	if !sameAppearance(current, s) {
+		s.History = appendSettingsEvent(s.History, adminID, "history.appearance_save", s.DefaultTheme)
 	}
 	return srv.Store.PutJSON(appearanceKey, &s)
 }
@@ -221,6 +248,7 @@ func (srv *Server) restoreTheme(w http.ResponseWriter, r *http.Request, adminID 
 		if previous := s.PreviousTheme; previous != nil {
 			if _, _, installed := srv.themes.Get(previous.DefaultTheme); installed {
 				s.themeDesign, s.PreviousTheme = previous.sanitized(), nil
+				s.History = appendSettingsEvent(s.History, adminID, "history.theme_restore", s.DefaultTheme)
 				status = http.StatusSeeOther
 				if err = srv.Store.PutJSON(appearanceKey, &s); err != nil {
 					status = http.StatusInternalServerError

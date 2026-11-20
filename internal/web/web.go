@@ -193,18 +193,19 @@ func (srv *Server) me(r *http.Request) *domain.User {
 type Crumb struct{ URL, Title string }
 
 type pageData struct {
-	Locale     *uiLocale
-	Appearance appearanceSettings
-	ThemeDraft bool
-	Extensions []plugin.Status
-	Sidebar    sidebarView
-	PreviewURL string
-	Title      string
-	Nav        string
-	Crumbs     []Crumb
-	Rebuilding bool
-	Version    string
-	Now        time.Time
+	Locale          *uiLocale
+	Appearance      appearanceSettings
+	ThemeDraft      bool
+	Extensions      []plugin.Status
+	SettingsHistory []settingsEvent
+	Sidebar         sidebarView
+	PreviewURL      string
+	Title           string
+	Nav             string
+	Crumbs          []Crumb
+	Rebuilding      bool
+	Version         string
+	Now             time.Time
 
 	// M2 identity: Me is nil for guests; CSRF is the session token every
 	// form must submit.

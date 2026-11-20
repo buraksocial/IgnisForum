@@ -44,5 +44,10 @@
       {{if .Disabled}}<button class="btn" name="action" value="enable">{{$.Locale.Text "appearance.enable"}}</button>{{else}}<button class="btn" name="action" value="disable">{{$.Locale.Text "appearance.disable"}}</button>{{end}}
     </form>
   </li>{{else}}<li>{{.Locale.Text "appearance.no_packages"}}</li>{{end}}</ul></section>
+<section class="panel" id="settings-history"><h2>{{.Locale.Text "history.heading"}}</h2>
+  <p class="muted">{{.Locale.Text "history.help"}}</p>
+  <ul>{{range .SettingsHistory}}<li><time datetime="{{.At.Format "2006-01-02T15:04:05Z07:00"}}" title="{{.At.Format "2006-01-02 15:04:05Z07:00"}}">{{$.Locale.Ago .At $.Now}}</time> — {{$.Locale.Text "history.admin" (printf "%d" .AdminID)}} · {{$.Locale.Text .Action}} · {{.Target}}</li>
+  {{else}}<li>{{.Locale.Text "history.empty"}}</li>{{end}}</ul>
+</section>
 {{template "footer" .}}
 {{end}}

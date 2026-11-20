@@ -79,6 +79,7 @@ func testAdminControlsInstalledPlugins(t *testing.T, tag string) {
 	post(member, "base", "disable", mustFindCSRF(t, member, ts.URL+"/"), http.StatusForbidden)
 	post(admin, "base", "disable", "wrong", http.StatusForbidden)
 	post(admin, "missing", "disable", csrf, http.StatusNotFound)
+	post(admin, "base", "unknown", csrf, http.StatusBadRequest)
 	post(admin, "base", "disable", csrf, http.StatusSeeOther)
 	checkHome(1)
 	_, body, _ := getBody(t, admin, panel)
@@ -90,4 +91,22 @@ func testAdminControlsInstalledPlugins(t *testing.T, tag string) {
 	checkHome(3)
 	post(admin, "leaf", "enable", csrf, http.StatusSeeOther)
 	checkHome(4)
+	post(admin, "leaf", "enable", csrf, http.StatusSeeOther)
+	reader := &Server{Store: st}
+	settings, err := reader.readPluginPreferences()
+	if err != nil || len(settings.History) != 4 || len(settings.Disabled) != 0 {
+		t.Fatalf("plugin history=%+v disabled=%v error=%v", settings.History, settings.Disabled, err)
+	}
+	for i, target := range []string{"base", "leaf", "base", "leaf"} {
+		event := settings.History[i]
+		if event.Target != target || event.AdminID == 0 || event.At.IsZero() {
+			t.Errorf("invalid plugin event: %+v", event)
+		}
+	}
+	_, body, _ = getBody(t, admin, panel)
+	for _, key := range []string{"history.heading", "history.plugin_enable", "history.plugin_disable"} {
+		if !strings.Contains(body, locale.Text(key)) {
+			t.Errorf("history missing %s", key)
+		}
+	}
 }
