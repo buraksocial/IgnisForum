@@ -64,6 +64,21 @@ Package installation, capability grants, health UI and version rollback are not 
 package changes must be made by a trusted operator and deployed as an atomic
 release. Do not expose the plugin directory as a web upload destination.
 
+For explicit operator-side package transactions, build
+`go build ./cmd/ignisforum-plugin`. `install -root <private-plugin-dir>
+-source <package-dir>` validates the manifest and WASM in an isolated runtime,
+then atomically moves the current package to `<id>.rollback` before activating
+the new copy. An occupied rollback slot stops the transaction. `rollback -root
+... -id <id>` swaps the rollback package back and preserves the current copy as
+`<id>.rollback.current`. `remove -root ... -id <id>` moves the package to a
+timestamped `.removed.*` quarantine instead of deleting it. These commands do
+not reload a running service; restart only after an operator has checked the
+package and its rollback path. The CLI copies only `plugin.json` and
+`plugin.wasm`, rejects symlinks/extra files, requires a private 0700 root and
+never accepts package bytes from an HTTP request. Promotion, backup and health
+checks remain outside this package transaction and are not automatic. A package
+transaction is not a release promotion and does not prove database compatibility.
+
 ## Settings history and compatibility
 
 The administrator-only appearance page shows the latest 20 recorded settings

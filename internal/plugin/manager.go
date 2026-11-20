@@ -100,6 +100,11 @@ func Load(ctx context.Context, dir string) (*Manager, error) {
 			continue
 		}
 		id := entry.Name()
+		// Operator transaction/quarantine directories are not active packages.
+		// They retain bytes for rollback or review and are never loaded.
+		if strings.HasPrefix(id, ".") || strings.HasSuffix(id, ".rollback") || strings.HasSuffix(id, ".rollback.current") || strings.Contains(id, ".removed.") {
+			continue
+		}
 		if !idPattern.MatchString(id) {
 			return nil, m.fail(ctx, fmt.Errorf("invalid plugin directory name %q", id))
 		}

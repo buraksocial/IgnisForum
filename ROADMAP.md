@@ -76,6 +76,8 @@ The old forum and its MariaDB data remain authoritative until cutover acceptance
   verify legacy preferences, restart persistence and concurrent updates.
 - [x] Add bounded per-plugin JSON configuration and administrator-only sandboxed
   single-plugin preview without changing live state.
+- [x] Add an operator-only atomic plugin install, reversible quarantine removal
+  and one-slot version rollback CLI; running services still require restart.
 - [ ] Add operator-managed package installation/removal, health UI and version
   rollback before treating extensions as complete; panel preview/configuration
   and bounded audit history are implemented.
