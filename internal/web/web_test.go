@@ -610,6 +610,10 @@ func TestAdminUserManagementSuspendsAndProtectsSelf(t *testing.T) {
 	if !ok {
 		t.Fatal("managed user was not created")
 	}
+	adminUser, ok := users.ByName("admin-test")
+	if !ok {
+		t.Fatal("admin user was not created")
+	}
 
 	code, body, _ := getBody(t, adminClient, ts.URL+"/admin/users")
 	if code != http.StatusOK || !strings.Contains(body, "managed-user") {
@@ -621,6 +625,10 @@ func TestAdminUserManagementSuspendsAndProtectsSelf(t *testing.T) {
 	})
 	if resp.StatusCode != http.StatusSeeOther {
 		t.Fatalf("suspend = %d", resp.StatusCode)
+	}
+	code, body, _ = getBody(t, adminClient, ts.URL+"/admin/audit")
+	if code != http.StatusOK || !strings.Contains(body, "Kullanıcı askıya alındı") || !strings.Contains(body, "managed-user") {
+		t.Fatalf("audit page = %d, body missing suspension event", code)
 	}
 
 	// Suspension must take effect at authentication, not only in the UI.
@@ -634,7 +642,7 @@ func TestAdminUserManagementSuspendsAndProtectsSelf(t *testing.T) {
 	}
 
 	adminCSRF := mustFindCSRF(t, adminClient, ts.URL+"/admin/users")
-	resp = formPost(t, adminClient, ts.URL+"/admin/users/50", url.Values{
+	resp = formPost(t, adminClient, ts.URL+"/admin/users/"+itoa(adminUser.ID), url.Values{
 		"csrf": {adminCSRF}, "action": {"suspend"},
 	})
 	if resp.StatusCode != http.StatusConflict {

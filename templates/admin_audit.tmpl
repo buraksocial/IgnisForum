@@ -1,0 +1,16 @@
+{{define "admin_audit"}}
+{{template "header" .}}
+<div class="toolbar"><h1>{{.Locale.Text "admin.audit"}}</h1><a class="btn" href="/admin">{{.Locale.Text "admin.back"}}</a></div>
+<p class="muted">{{.Locale.Text "admin.audit_help"}}</p>
+<div class="admin-audit-list">
+{{range .AdminAudit}}
+<article class="panel admin-audit-card">
+  <div class="admin-audit-heading"><strong>{{$.Locale.Text .Action}}</strong><time datetime="{{.CreatedAt.Format "2006-01-02T15:04:05Z07:00"}}">{{.CreatedAt.Format "2006-01-02 15:04"}}</time></div>
+  <div>{{$.Locale.Text "admin.audit_actor"}}: <strong>{{.Actor}}</strong> · {{$.Locale.Text "admin.audit_target"}}: {{.TargetType}} #{{.TargetID}}</div>
+  {{if .Details}}<div class="muted">{{.Details}}</div>{{end}}
+</article>
+{{else}}<div class="empty">{{.Locale.Text "admin.audit_empty"}}</div>{{end}}
+</div>
+{{template "pager" .}}
+{{template "footer" .}}
+{{end}}

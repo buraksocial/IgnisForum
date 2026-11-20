@@ -27,6 +27,11 @@
     <h2>{{.Locale.Text "admin.security"}}</h2>
     <p>{{.Locale.Text "admin.security_help"}}</p>
   </section>
+  <section class="panel">
+    <h2>{{.Locale.Text "admin.audit"}}</h2>
+    <p class="muted">{{.Locale.Text "admin.audit_help"}}</p>
+    <a class="btn btn-primary" href="/admin/audit">{{.Locale.Text "admin.audit_open"}}</a>
+  </section>
 </div>
 {{template "footer" .}}
 {{end}}

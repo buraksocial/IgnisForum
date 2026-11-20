@@ -106,6 +106,14 @@ func (srv *Server) saveAdminUser(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, locale.Text("admin.user_save_failed"), http.StatusInternalServerError)
 			return
 		}
+		actionName := "audit.user_activate"
+		if action == "suspend" {
+			actionName = "audit.user_suspend"
+		}
+		if err := srv.recordAdminAudit(admin.ID, actionName, "user", target.ID, target.Username); err != nil {
+			http.Error(w, locale.Text("admin.user_save_failed"), http.StatusInternalServerError)
+			return
+		}
 	case "groups":
 		groups := make([]uint64, 0, 2)
 		for _, raw := range strings.Split(r.FormValue("groups"), ",") {
@@ -134,6 +142,10 @@ func (srv *Server) saveAdminUser(w http.ResponseWriter, r *http.Request) {
 		}
 		target.GroupIDs = groups
 		if err := srv.Store.PutJSON("user:"+strconv.FormatUint(target.ID, 10), target); err != nil {
+			http.Error(w, locale.Text("admin.user_save_failed"), http.StatusInternalServerError)
+			return
+		}
+		if err := srv.recordAdminAudit(admin.ID, "audit.user_groups", "user", target.ID, target.Username); err != nil {
 			http.Error(w, locale.Text("admin.user_save_failed"), http.StatusInternalServerError)
 			return
 		}

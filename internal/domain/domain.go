@@ -147,6 +147,18 @@ type Report struct {
 	ResolvedBy uint64    `json:"resolved_by,omitempty"`
 }
 
+// AdminAudit records a privileged administrative mutation. Details are a
+// localized-independent short description safe for the admin-only audit view.
+type AdminAudit struct {
+	ID         uint64    `json:"id"`
+	ActorID    uint64    `json:"actor_id"`
+	Action     string    `json:"action"`
+	TargetType string    `json:"target_type"`
+	TargetID   uint64    `json:"target_id"`
+	Details    string    `json:"details,omitempty"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+
 type Poll struct {
 	ThreadID uint64       `json:"thread_id"`
 	Question string       `json:"question"`
