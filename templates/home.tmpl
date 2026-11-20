@@ -2,6 +2,7 @@
 {{template "header" .}}
 <div class="home-grid">
   <div>
+    {{range .PluginNotices}}<aside class="plugin-notice">{{.}}</aside>{{end}}
     {{if not .Cats}}
       <div class="empty">Henüz forum yok. Sunucuyu <code>--seed</code> ile örnek veriyle başlatabilirsiniz.</div>
     {{end}}

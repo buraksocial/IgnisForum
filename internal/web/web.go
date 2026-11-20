@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"html/template"
+	"log"
 	"net/http"
 	"net/url"
 	"sort"
@@ -29,6 +30,7 @@ import (
 	"github.com/buraksocial/IgnisForum/internal/auth"
 	"github.com/buraksocial/IgnisForum/internal/domain"
 	"github.com/buraksocial/IgnisForum/internal/perm"
+	"github.com/buraksocial/IgnisForum/internal/plugin"
 	"github.com/buraksocial/IgnisForum/internal/repo"
 	"github.com/buraksocial/IgnisForum/internal/store"
 )
@@ -44,6 +46,7 @@ type Deps struct {
 	Perms    *perm.Engine
 	Secure   bool // cookies carry the Secure flag (behind TLS, M6)
 	ThemeDir string
+	Plugins  *plugin.Manager
 }
 
 // Server holds shared dependencies for all handlers.
@@ -198,13 +201,14 @@ type pageData struct {
 	HaveQ bool
 
 	// auth forms
-	FormError    string
-	Remember     bool
-	RedirectBack string
-	ThemeID      string
-	ThemeVersion string
-	ThemeOptions []ThemeOption
-	ThemeBack    string
+	FormError     string
+	Remember      bool
+	RedirectBack  string
+	ThemeID       string
+	ThemeVersion  string
+	ThemeOptions  []ThemeOption
+	ThemeBack     string
+	PluginNotices []string
 
 	// administration
 	AdminNodes          []adminNodeOption
@@ -475,6 +479,26 @@ func (srv *Server) home(w http.ResponseWriter, r *http.Request) {
 	d := srv.base(r, "IgnisForum — Forum", "home", nil)
 	d.Cats = srv.buildCats(r, d.Me, tree)
 	d.LatestThreads = srv.threadsFromIDs(srv.Store.ZPage(repo.IdxLatestThreads, 0, 10), d.Me)
+	if srv.D.Plugins != nil {
+		results, err := srv.D.Plugins.RunHook(r.Context(), "home.decorate", map[string]any{"version": Version, "categories": len(d.Cats)})
+		if err != nil {
+			log.Printf("plugin hook home.decorate: %v", err)
+		}
+		for _, result := range results {
+			var response struct {
+				Notices []string `json:"notices"`
+			}
+			if json.Unmarshal(result, &response) != nil {
+				continue
+			}
+			for _, notice := range response.Notices {
+				notice = strings.TrimSpace(notice)
+				if notice != "" && len(notice) <= 240 && len(d.PluginNotices) < 5 {
+					d.PluginNotices = append(d.PluginNotices, notice)
+				}
+			}
+		}
+	}
 	srv.render(w, "home", d)
 }
 

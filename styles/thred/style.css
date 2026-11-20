@@ -175,6 +175,7 @@ label { display: block; font-size: 13px; font-weight: 600; margin: 12px 0 4px; }
 .theme-menu-items { position: absolute; z-index: 20; right: 0; top: calc(100% + 6px); min-width: 150px; padding: 6px; border: 1px solid var(--color-brd); border-radius: var(--radius-theme); background: var(--color-bg); box-shadow: 0 8px 24px #0002; }
 .theme-menu-items a { display: block; padding: 6px 10px; border-radius: 5px; }
 .theme-menu-items a:hover { background: var(--color-bg-tone); text-decoration: none; }
+.plugin-notice { margin: 8px 0; padding: 12px 16px; border-left: 3px solid var(--color-brand); border-radius: 4px; background: var(--color-bg-tone); }
 
 .reply-box { border: 1px solid var(--color-brd); border-radius: var(--radius-theme); padding: 16px; margin-top: 24px; background: var(--color-bg); }
 

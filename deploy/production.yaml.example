@@ -8,3 +8,4 @@ compaction_threshold: 4
 base_url: https://forum.tutorial.com.tr
 secure_cookies: true
 theme_dir: /var/lib/ignisforum/themes
+plugin_dir: /var/lib/ignisforum/plugins

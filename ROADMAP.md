@@ -18,6 +18,10 @@ The old forum and its MariaDB data remain authoritative until cutover acceptance
   preference, preview/rollback, and cache invalidation without editing templates.
 - [ ] Add an extension system with a versioned, capability-limited API, lifecycle
   hooks, configuration, dependency/version checks, and enable/disable rollback.
+- [x] Implement the initial no-import WASM runtime, bounded `home.decorate` hook,
+  exact-version dependency validation, and operator-installed package format.
+- [ ] Add admin-managed installation/preview/configuration, individual plugin
+  enable/disable, audit events, and rollback before treating extensions as complete.
 - [ ] Build a read-only Flarum importer for users, groups, discussions, posts,
   reactions, tags, and uploads; retain source IDs and produce reconciliation reports.
 - [ ] Rehearse backup/restore, migration, load/race/security tests, and rollback;

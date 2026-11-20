@@ -21,6 +21,7 @@ import (
 	"github.com/buraksocial/IgnisForum/internal/auth"
 	"github.com/buraksocial/IgnisForum/internal/config"
 	"github.com/buraksocial/IgnisForum/internal/perm"
+	"github.com/buraksocial/IgnisForum/internal/plugin"
 	"github.com/buraksocial/IgnisForum/internal/repo"
 	"github.com/buraksocial/IgnisForum/internal/store"
 	"github.com/buraksocial/IgnisForum/internal/web"
@@ -140,8 +141,14 @@ func main() {
 		return
 	}
 
+	plugins, err := plugin.Load(context.Background(), cfg.PluginDir)
+	if err != nil {
+		log.Fatalf("load plugins: %v", err)
+	}
+	defer plugins.Close(context.Background())
+
 	web.Version = version
-	rtr := web.New(st, r, web.Deps{Auth: authSvc, Users: users, RL: rl, Perms: perms, Secure: cfg.SecureCookies, ThemeDir: cfg.ThemeDir}, assets.FS)
+	rtr := web.New(st, r, web.Deps{Auth: authSvc, Users: users, RL: rl, Perms: perms, Secure: cfg.SecureCookies, ThemeDir: cfg.ThemeDir, Plugins: plugins}, assets.FS)
 
 	srv := &http.Server{
 		Addr:              cfg.ListenAddr,

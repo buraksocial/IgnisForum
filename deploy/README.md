@@ -17,6 +17,9 @@ responses at the proxy/CDN.
    original host, and pass a proxy-generated client IP. Do not trust client
    supplied forwarding headers from the public network.
 
+Themes and plugins are operator-installed under their configured directories.
+See `plugins.md` for the current WASM API and its deliberately limited v1 hooks.
+
 ## Administrator recovery
 
 The published demo password is never installed by normal server startup.

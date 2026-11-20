@@ -32,6 +32,8 @@ type Config struct {
 	SecureCookies bool `yaml:"secure_cookies"`
 	// ThemeDir contains administrator-installed, manifest-validated CSS themes.
 	ThemeDir string `yaml:"theme_dir"`
+	// PluginDir contains administrator-installed, validated WebAssembly plugins.
+	PluginDir string `yaml:"plugin_dir"`
 }
 
 // Default returns configuration with the fixed architecture defaults applied.
@@ -93,6 +95,9 @@ func (c *Config) applyEnv() {
 	}
 	if v := os.Getenv("IGNISFORUM_THEME_DIR"); v != "" {
 		c.ThemeDir = v
+	}
+	if v := os.Getenv("IGNISFORUM_PLUGIN_DIR"); v != "" {
+		c.PluginDir = v
 	}
 	if v := os.Getenv("IGNISFORUM_MEMTABLE_SIZE"); v != "" {
 		if n, err := strconv.ParseInt(v, 10, 64); err == nil {
