@@ -122,6 +122,20 @@ type Reaction struct {
 	State  int    `json:"state"` // 0 active, 2 removed
 }
 
+// Report is a member-submitted moderation report for one post. The report is
+// retained after resolution as an auditable primary record.
+type Report struct {
+	ID         uint64    `json:"id"`
+	PostID     uint64    `json:"post_id"`
+	ThreadID   uint64    `json:"thread_id"`
+	ReporterID uint64    `json:"reporter_id"`
+	Reason     string    `json:"reason"`
+	State      string    `json:"state"` // open, resolved
+	CreatedAt  time.Time `json:"created_at"`
+	ResolvedAt time.Time `json:"resolved_at,omitempty"`
+	ResolvedBy uint64    `json:"resolved_by,omitempty"`
+}
+
 // LastPostRef is the denormalised "last post" card stored inside node/thread
 // blobs. It is what makes the forum index a single-blob render: no extra reads
 // per row for the last-post column.

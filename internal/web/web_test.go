@@ -592,6 +592,47 @@ func TestPostEditOwnAuthorizationCSRFAndReindex(t *testing.T) {
 	resp.Body.Close()
 }
 
+func TestMemberReportAndAdminModerationQueue(t *testing.T) {
+	ts, _, repos, authSvc, _ := newTestServer(t)
+	member := register(t, ts, "reportingmember")
+	threadIDs := repos.Threads.List(2, "new", 0, 10)
+	if len(threadIDs) == 0 {
+		t.Fatal("fixture thread unavailable")
+	}
+	thread, _ := repos.Threads.Get(threadIDs[0])
+	postID := thread.FirstPostID
+	csrf := mustFindCSRF(t, member, ts.URL+"/t/"+itoa(thread.ID))
+	reportURL := ts.URL + "/t/" + itoa(thread.ID) + "/post/" + itoa(postID) + "/report"
+	resp := formPost(t, member, reportURL, url.Values{"csrf": {"bad"}, "reason": {"Spam content"}})
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("report with bad csrf = %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+	resp = formPost(t, member, reportURL, url.Values{"csrf": {csrf}, "reason": {"Spam content"}})
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("submit report = %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+	if reports := repos.OpenReports(0, 10); len(reports) != 1 {
+		t.Fatalf("open report count = %d", len(reports))
+	}
+	admin := loginAsAdmin(t, ts, repos.S, authSvc)
+	code, body, _ := getBody(t, admin, ts.URL+"/admin/reports")
+	if code != http.StatusOK || !strings.Contains(body, "Spam content") {
+		t.Fatalf("moderation queue = %d", code)
+	}
+	csrf = mustFindCSRF(t, admin, ts.URL+"/admin/reports")
+	reportID := repos.OpenReports(0, 10)[0].ID
+	resp = formPost(t, admin, ts.URL+"/admin/reports/"+itoa(reportID)+"/resolve", url.Values{"csrf": {csrf}})
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("resolve report = %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+	if reports := repos.OpenReports(0, 10); len(reports) != 0 {
+		t.Fatalf("open reports after resolution = %d", len(reports))
+	}
+}
+
 // TestWrongCredentials covers the unified login failure + rate-limit lockout.
 func TestWrongCredentials(t *testing.T) {
 	ts, _, _, _, _ := newTestServer(t)

@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-chi/chi/v5"
+
 	"github.com/buraksocial/IgnisForum/internal/domain"
 	"github.com/buraksocial/IgnisForum/internal/perm"
 )
@@ -47,6 +49,47 @@ func (srv *Server) adminHome(w http.ResponseWriter, r *http.Request) {
 	}
 	d := srv.base(r, "Yönetim", "admin", nil)
 	srv.render(w, "admin", d)
+}
+
+func (srv *Server) adminReports(w http.ResponseWriter, r *http.Request) {
+	if srv.requireAdmin(w, r) == nil {
+		return
+	}
+	d := srv.base(r, "Moderasyon raporları", "admin", []Crumb{{URL: "/admin", Title: "Yönetim"}})
+	for _, report := range srv.Repos.OpenReports(0, 100) {
+		_, ok := srv.Repos.Posts.Get(report.PostID)
+		if !ok {
+			continue
+		}
+		d.Reports = append(d.Reports, adminReportRow{ID: report.ID, PostID: report.PostID, ThreadID: report.ThreadID,
+			Reason: report.Reason, Reporter: srv.username(report.ReporterID), CreatedAt: report.CreatedAt})
+	}
+	srv.render(w, "admin_reports", d)
+}
+
+func (srv *Server) resolveReport(w http.ResponseWriter, r *http.Request) {
+	admin := srv.requireAdmin(w, r)
+	if admin == nil {
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "invalid form", http.StatusBadRequest)
+		return
+	}
+	if !csrfOK(r, r.FormValue("csrf")) {
+		srv.deny(w, r, "CSRF doğrulaması başarısız.")
+		return
+	}
+	if ok, retry := srv.D.RL.Allow("resolve-report", strconv.FormatUint(admin.ID, 10), 60, time.Minute); !ok {
+		srv.tooMany(w, r, retry)
+		return
+	}
+	id := parseID(chi.URLParam(r, "reportID"))
+	if err := srv.Repos.ResolveReport(id, admin.ID); err != nil {
+		http.Error(w, "Rapor bulunamadı.", http.StatusNotFound)
+		return
+	}
+	http.Redirect(w, r, "/admin/reports", http.StatusSeeOther)
 }
 
 func (srv *Server) adminNodes(w http.ResponseWriter, r *http.Request) {

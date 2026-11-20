@@ -30,6 +30,13 @@
         <button class="btn btn-primary" type="submit">Değişiklikleri kaydet</button>
       </form>
     </details>{{end}}
+    {{if .CanReport}}<details class="post-report"><summary>Raporla</summary>
+      <form method="post" action="/t/{{$page.Thread.ID}}/post/{{.ID}}/report">
+        <input type="hidden" name="csrf" value="{{$page.CSRF}}">
+        <label>Gerekçe<textarea name="reason" rows="2" maxlength="500" minlength="3" required></textarea></label>
+        <button class="btn" type="submit">Moderatörlere gönder</button>
+      </form>
+    </details>{{end}}
   </div>
   <div class="reaction-row" aria-label="Mesaj tepkileri">
     {{range .Reactions}}

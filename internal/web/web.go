@@ -100,6 +100,7 @@ func buildRouter(srv *Server) chi.Router {
 	rr.Get("/t/{threadID}/post/{postID}", srv.postRedirect)
 	rr.Post("/t/{threadID}/reply", srv.reply)
 	rr.Post("/t/{threadID}/post/{postID}/edit", srv.editPost)
+	rr.Post("/t/{threadID}/post/{postID}/report", srv.reportPost)
 	rr.Post("/t/{threadID}/post/{postID}/reaction", srv.react)
 
 	rr.Get("/login", srv.loginForm)
@@ -110,6 +111,8 @@ func buildRouter(srv *Server) chi.Router {
 	rr.Get("/admin", srv.adminHome)
 	rr.Get("/admin/nodes", srv.adminNodes)
 	rr.Post("/admin/nodes", srv.saveAdminNode)
+	rr.Get("/admin/reports", srv.adminReports)
+	rr.Post("/admin/reports/{reportID}/resolve", srv.resolveReport)
 	rr.Get("/admin/permissions", srv.adminPermissions)
 	rr.Post("/admin/permissions", srv.saveAdminPermissions)
 
@@ -220,6 +223,7 @@ type pageData struct {
 	AdminGroups         []adminGroupView
 	AdminPermissionRows []adminPermissionRow
 	AdminNodeRows       []adminNodeRow
+	Reports             []adminReportRow
 }
 
 type adminNodeOption struct {
@@ -234,6 +238,11 @@ type adminNodeRow struct {
 	ParentID                 uint64
 	AllowPolls               bool
 	ThreadCount, PostCount   int
+}
+type adminReportRow struct {
+	ID, PostID, ThreadID uint64
+	Reason, Reporter     string
+	CreatedAt            time.Time
 }
 type adminGroupView struct {
 	ID   uint64
@@ -287,6 +296,7 @@ type postRow struct {
 	Edited    bool
 	CanEdit   bool
 	Raw       string
+	CanReport bool
 	Reactions []reactionView
 }
 
@@ -632,6 +642,7 @@ func (srv *Server) thread(w http.ResponseWriter, r *http.Request) {
 		}
 		if d.Me != nil {
 			row.CanEdit = d.Me.ID == post.UserID && time.Since(post.Date) <= 15*time.Minute || srv.can(r, d.Me, perm.ScopeGlobal, 0, perm.KeyAdmin)
+			row.CanReport = d.Me.ID != post.UserID
 		}
 		myReaction := ""
 		if d.Me != nil {
@@ -753,6 +764,42 @@ func (srv *Server) editPost(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Mesaj güncellenemedi.", http.StatusInternalServerError)
 		return
 	}
+	http.Redirect(w, r, "/t/"+itoa(threadID)+"#post-"+itoa(postID), http.StatusSeeOther)
+}
+
+func (srv *Server) reportPost(w http.ResponseWriter, r *http.Request) {
+	threadID, postID := parseID(chi.URLParam(r, "threadID")), parseID(chi.URLParam(r, "postID"))
+	me := srv.requireAuth(w, r)
+	if me == nil {
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "invalid form", http.StatusBadRequest)
+		return
+	}
+	if !csrfOK(r, r.FormValue("csrf")) {
+		srv.deny(w, r, "CSRF doğrulaması başarısız.")
+		return
+	}
+	post, ok := srv.Repos.Posts.Get(postID)
+	if !ok || post.ThreadID != threadID || post.State != 0 {
+		srv.notFound(w, r)
+		return
+	}
+	if post.UserID == me.ID {
+		srv.deny(w, r, "Kendi mesajınızı raporlayamazsınız.")
+		return
+	}
+	if ok, retry := srv.D.RL.Allow("report", itoa(me.ID), 10, time.Hour); !ok {
+		srv.tooMany(w, r, retry)
+		return
+	}
+	report, err := srv.Repos.CreateReport(postID, me.ID, r.FormValue("reason"))
+	if err != nil {
+		http.Error(w, "Rapor gerekçesi 3-500 karakter olmalıdır.", http.StatusBadRequest)
+		return
+	}
+	_ = report
 	http.Redirect(w, r, "/t/"+itoa(threadID)+"#post-"+itoa(postID), http.StatusSeeOther)
 }
 

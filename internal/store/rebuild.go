@@ -168,7 +168,7 @@ func (s *Store) RebuildContent(hooks *RebuildHooks) RebuildReport {
 
 // walkOrder is dependency-free ordering; posts last so FT (which reads post text)
 // runs after thread metadata is available if hooks need it.
-var walkOrder = []string{TypeUser, TypeNode, TypeThread, TypePost, TypeReaction, TypePostReaction, TypeTag}
+var walkOrder = []string{TypeUser, TypeNode, TypeThread, TypePost, TypeReaction, TypePostReaction, TypeTag, TypeReport}
 
 // nowSecs is a monotonic-ish wall clock in seconds for rebuild timing.
 func nowSecs() float64 { return float64(time.Now().UnixNano()) / 1e9 }

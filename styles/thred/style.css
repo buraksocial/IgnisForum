@@ -192,6 +192,14 @@ label { display: block; font-size: 13px; font-weight: 600; margin: 12px 0 4px; }
 .post-edit[open] { display: block; margin: 10px 0 0; }
 .post-edit form { display: grid; gap: 8px; margin-top: 8px; }
 .post-edit textarea { width: 100%; border: 1px solid var(--color-brd); border-radius: 6px; padding: 10px; color: var(--color-typ); background: var(--color-bg); font: inherit; }
+.post-report { display: inline-block; margin-left: 10px; }
+.post-report summary { display: inline; cursor: pointer; color: var(--color-typ-tone); }
+.post-report[open] { display: block; margin: 10px 0 0; }
+.post-report form { display: flex; align-items: end; gap: 8px; margin-top: 8px; }
+.post-report textarea { display: block; width: min(480px, 70vw); border: 1px solid var(--color-brd); border-radius: 6px; padding: 8px; color: var(--color-typ); background: var(--color-bg); font: inherit; }
+.report-card { margin: 12px 0; }
+.report-meta, .report-actions { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.report-actions form { margin: 0; }
 
 .reply-box { border: 1px solid var(--color-brd); border-radius: var(--radius-theme); padding: 16px; margin-top: 24px; background: var(--color-bg); }
 

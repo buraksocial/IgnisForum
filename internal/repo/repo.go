@@ -47,6 +47,7 @@ func New(s *store.Store) *Repos {
 	hooks.Set(store.TypeThread, r.Threads.rebuildHook)
 	hooks.Set(store.TypePost, r.Posts.rebuildHook)
 	hooks.Set(store.TypePostReaction, r.Reactions.rebuildHook)
+	hooks.Set(store.TypeReport, r.rebuildReportHook)
 	r.Hooks = hooks
 	return r
 }
