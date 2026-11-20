@@ -81,6 +81,19 @@ func (s *Store) MaxID(typ string) uint64 {
 	return 0
 }
 
+// AdvanceIDFloor moves the global allocator above externally assigned entity
+// IDs before a migration starts generating its own synthetic IDs. It never
+// decreases the allocator and persists the new floor immediately.
+func (s *Store) AdvanceIDFloor(id uint64) {
+	for {
+		current := s.alloc.Load()
+		if current >= id || s.alloc.CompareAndSwap(current, id) {
+			break
+		}
+	}
+	s.persistAlloc()
+}
+
 func (s *Store) markSlot(typ string) *atomic.Uint64 {
 	i, ok := typeSlots[typ]
 	if !ok {

@@ -80,6 +80,7 @@ type Thread struct {
 	Title           string       `json:"title"`
 	Slug            string       `json:"slug"`
 	PrefixID        uint64       `json:"prefix_id,omitempty"`
+	TagIDs          []uint64     `json:"tag_ids,omitempty"`
 	UserID          uint64       `json:"user_id"`
 	FirstPostID     uint64       `json:"first_post_id"`
 	PostCount       int          `json:"post_count"`

@@ -66,6 +66,44 @@ func (t *ThreadRepo) Create(nodeID, userID uint64, title, rawMessage string) (*d
 	return thread, post, nil
 }
 
+// Import writes a thread and all its source-mapped posts by their supplied IDs.
+// It creates only primary records; the normal rebuild pass derives every index
+// and full-text document after all entities have been imported. Replaying the
+// same immutable source rows overwrites the same primaries rather than cloning
+// discussions or replies.
+func (t *ThreadRepo) Import(thread *domain.Thread, posts []*domain.Post) error {
+	if thread == nil || thread.ID == 0 || thread.FirstPostID == 0 || thread.Title == "" {
+		return fmt.Errorf("invalid imported thread")
+	}
+	if _, ok := t.r.Nodes.Get(thread.NodeID); !ok {
+		return fmt.Errorf("imported thread %d has no node %d", thread.ID, thread.NodeID)
+	}
+	firstFound := false
+	for _, post := range posts {
+		if post == nil || post.ID == 0 || post.ThreadID != thread.ID {
+			return fmt.Errorf("invalid post in imported thread %d", thread.ID)
+		}
+		if post.ID == thread.FirstPostID {
+			firstFound = true
+		}
+	}
+	if !firstFound {
+		return fmt.Errorf("imported thread %d is missing first post %d", thread.ID, thread.FirstPostID)
+	}
+	t.r.S.MarkID(store.TypeThread, thread.ID)
+	t.r.S.MarkID(store.TypePost, thread.FirstPostID)
+	if err := t.r.S.PutJSON(keyThread(thread.ID), thread); err != nil {
+		return err
+	}
+	for _, post := range posts {
+		t.r.S.MarkID(store.TypePost, post.ID)
+		if err := t.r.S.PutJSON(keyPost(post.ID), post); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // indexThread adds/updates a thread in every per-node and global thread index.
 func (t *ThreadRepo) indexThread(thread *domain.Thread) {
 	s := t.r.S

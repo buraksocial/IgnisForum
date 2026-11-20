@@ -24,6 +24,36 @@ func (n *NodeRepo) CreateForum(parentID uint64, title, slug, description string,
 	return n.create(domain.TypeForum, parentID, title, slug, description, func(o *domain.NodeOptions) { o.AllowPolls = allowPolls })
 }
 
+// ImportNode writes a source-ID-mapped node. It is restricted to the importer
+// package's validated staging workflow and is intentionally replay-safe.
+func (n *NodeRepo) ImportNode(id uint64, typ domain.NodeType, parentID uint64, title, slug, description string, position int) (*domain.Node, error) {
+	if id == 0 || title == "" || position < 0 {
+		return nil, fmt.Errorf("invalid imported node")
+	}
+	if typ == domain.TypeCategory && parentID != 0 {
+		return nil, fmt.Errorf("imported category must be at root")
+	}
+	if typ == domain.TypeForum {
+		parent, ok := n.Get(parentID)
+		if !ok || parent.Type != domain.TypeCategory {
+			return nil, fmt.Errorf("imported forum requires category parent")
+		}
+	} else if typ != domain.TypeCategory {
+		return nil, fmt.Errorf("unsupported imported node type %q", typ)
+	}
+	if existing, ok := n.Get(id); ok && existing.Type != typ {
+		return nil, fmt.Errorf("imported node id %d conflicts with existing node", id)
+	}
+	node := &domain.Node{ID: id, Type: typ, ParentID: parentID, Title: title,
+		Slug: slug, Description: description, Position: position}
+	n.r.S.MarkID(store.TypeNode, id)
+	if err := n.r.S.PutJSON(keyNode(id), node); err != nil {
+		return nil, err
+	}
+	n.r.S.ZAddIdx(childrenOf(parentID), float64(position), id)
+	return node, nil
+}
+
 func (n *NodeRepo) create(typ domain.NodeType, parentID uint64, title, slug, description string, opts func(*domain.NodeOptions)) (*domain.Node, error) {
 	s := n.r.S
 	id := s.NextID()
@@ -189,6 +219,57 @@ func (n *NodeRepo) DeleteEmpty(id uint64) error {
 	n.r.S.Delete(keyNode(id))
 	n.r.S.ZRem(childrenOf(node.ParentID), id)
 	return n.buildTree()
+}
+
+// RebuildContentCounts recomputes node counts and last-post summaries from
+// imported primaries, avoiding counter drift when a staging import is resumed.
+func (n *NodeRepo) RebuildContentCounts() error {
+	for id := uint64(1); id <= n.r.S.MaxID(store.TypeNode); id++ {
+		node, ok := n.Get(id)
+		if !ok {
+			continue
+		}
+		node.ThreadCount, node.PostCount, node.LastPost = 0, 0, nil
+		if err := n.r.S.PutJSON(keyNode(id), node); err != nil {
+			return err
+		}
+	}
+	threadNodes := make(map[uint64]uint64)
+	for id := uint64(1); id <= n.r.S.MaxID(store.TypeThread); id++ {
+		thread, ok := n.r.Threads.Get(id)
+		if !ok || thread.Status == domain.ThreadDeleted {
+			continue
+		}
+		threadNodes[id] = thread.NodeID
+		if node, exists := n.Get(thread.NodeID); exists {
+			node.ThreadCount++
+			if err := n.r.S.PutJSON(keyNode(node.ID), node); err != nil {
+				return err
+			}
+		}
+	}
+	for id := uint64(1); id <= n.r.S.MaxID(store.TypePost); id++ {
+		post, ok := n.r.Posts.Get(id)
+		if !ok || post.State == 2 {
+			continue
+		}
+		nodeID, ok := threadNodes[post.ThreadID]
+		if !ok {
+			continue
+		}
+		node, exists := n.Get(nodeID)
+		if !exists {
+			continue
+		}
+		node.PostCount++
+		if node.LastPost == nil || post.Date.After(node.LastPost.T) {
+			node.LastPost = &domain.LastPostRef{T: post.Date, PostID: post.ID, UserID: post.UserID}
+		}
+		if err := n.r.S.PutJSON(keyNode(nodeID), node); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // rebuildHook re-derives the children index for a node during RebuildContent.

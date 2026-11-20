@@ -28,3 +28,29 @@ as exceptions; do not treat a successful snapshot as proof that import or
 cutover is complete. Never point an importer at the live IgnisForum data
 directory; use a separate staging data directory and retain Flarum as the
 authoritative service until restore and rollback rehearsals pass.
+
+## Isolated staging import
+
+Build and run the importer only against a new private staging directory and a
+new report path. The importer rejects overlap with the configured production
+data directory, refuses a non-empty store without its snapshot marker, and
+rejects a different snapshot on replay. A same-snapshot replay is supported
+after an interrupted import.
+
+```sh
+install -d -m 0700 /var/lib/ignisforum/migration/staging
+go run ./cmd/flarum-import \
+  -config /etc/ignisforum/config.yaml \
+  -snapshot /var/lib/ignisforum/migration/flarum-snapshot.json \
+  -data-dir /var/lib/ignisforum/migration/staging \
+  -report /var/lib/ignisforum/migration/reconciliation.json
+```
+
+Review every table's source/imported counts and every exception before accepting
+the staging copy. The importer preserves source IDs for users, tags/forums,
+discussions, and posts, and strips active HTML from rendered post content.
+Custom group permissions, read/subscription state, notifications, mention
+relations, and some Flarum visibility semantics do not have equivalent
+IgnisForum features; their omission must be resolved or explicitly accepted.
+The report is private because it may contain source identifiers and moderation
+details. This command does not switch traffic or change Flarum.
