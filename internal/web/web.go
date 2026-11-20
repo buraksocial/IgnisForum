@@ -24,6 +24,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -55,12 +56,13 @@ type Deps struct {
 
 // Server holds shared dependencies for all handlers.
 type Server struct {
-	Store    *store.Store
-	Repos    *repo.Repos
-	D        Deps
-	themes   *ThemeManager
-	tmpl     *template.Template
-	presence memberPresence
+	Store            *store.Store
+	Repos            *repo.Repos
+	D                Deps
+	themes           *ThemeManager
+	tmpl             *template.Template
+	presence         memberPresence
+	pluginSettingsMu sync.Mutex
 }
 
 // New builds the router with the M2 surface (content + auth). `assets` is the
@@ -125,6 +127,7 @@ func buildRouter(srv *Server) chi.Router {
 	rr.Get("/admin", srv.adminHome)
 	rr.Get("/admin/appearance", srv.adminAppearance)
 	rr.Post("/admin/appearance", srv.saveAppearance)
+	rr.Post("/admin/appearance/plugins/{pluginID}", srv.savePluginState)
 	rr.Get("/media/preview", srv.mediaPreview)
 	rr.Get("/admin/nodes", srv.adminNodes)
 	rr.Post("/admin/nodes", srv.saveAdminNode)
@@ -608,7 +611,11 @@ func (srv *Server) home(w http.ResponseWriter, r *http.Request) {
 	d.Sidebar = srv.homeSidebar(r, d)
 	d.LatestThreads = srv.threadsFromIDs(srv.Store.ZPage(repo.IdxLatestThreads, 0, 10), d.Me)
 	if srv.D.Plugins != nil {
-		results, err := srv.D.Plugins.RunHook(r.Context(), "home.decorate", map[string]any{"version": Version, "categories": len(d.Cats)})
+		var results [][]byte
+		disabled, err := srv.disabledPlugins()
+		if err == nil {
+			results, err = srv.D.Plugins.RunEnabledHook(r.Context(), "home.decorate", map[string]any{"version": Version, "categories": len(d.Cats)}, disabled)
+		}
 		if err != nil {
 			log.Printf("plugin hook home.decorate: %v", err)
 		}

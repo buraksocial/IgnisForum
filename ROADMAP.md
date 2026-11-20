@@ -48,8 +48,10 @@ The old forum and its MariaDB data remain authoritative until cutover acceptance
   at least 20 production-ready translations end to end.
 - [ ] Publish signed stable and security release metadata; build an opt-in updater
   with staging verification, backup and rollback, separate from the web process.
-- [ ] Add admin-managed installation/preview/configuration, individual plugin
-  enable/disable, audit events, and rollback before treating extensions as complete.
+- [x] Allow administrators to enable/disable individual WASM plugins without
+  restart, with persistent settings and dependency-aware suspension.
+- [ ] Add admin-managed installation/preview/configuration, durable audit events,
+  and version rollback before treating extensions as complete.
 - [x] Build an isolated read-only Flarum staging importer for users, groups,
   discussions, posts, reactions, and tags; retain source IDs and produce
   per-table reconciliation reports with explicit unsupported-data exceptions.

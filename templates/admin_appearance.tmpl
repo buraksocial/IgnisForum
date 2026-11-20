@@ -16,6 +16,12 @@
   </fieldset>
   <button class="btn btn-primary" type="submit">Ayarları kaydet</button>
 </form>
-<section class="panel"><h2>Kurulu WASM paketleri</h2><ul>{{range .Extensions}}<li>{{.Name}} ({{.ID}}, {{.Version}})</li>{{else}}<li>Kurulu paket yok.</li>{{end}}</ul></section>
+<section class="panel" id="wasm"><h2>Kurulu WASM paketleri</h2><ul>{{range .Extensions}}
+  <li>{{.Name}} ({{.ID}}, {{.Version}}) — {{if .Disabled}}Kapalı{{else if .BlockedBy}}Bağımlılık kapalı: {{.BlockedBy}}{{else}}Etkin{{end}}
+    <form method="post" action="/admin/appearance/plugins/{{.ID}}">
+      <input type="hidden" name="csrf" value="{{$.CSRF}}">
+      {{if .Disabled}}<button class="btn" name="action" value="enable">Etkinleştir</button>{{else}}<button class="btn" name="action" value="disable">Devre dışı bırak</button>{{end}}
+    </form>
+  </li>{{else}}<li>Kurulu paket yok.</li>{{end}}</ul></section>
 {{template "footer" .}}
 {{end}}

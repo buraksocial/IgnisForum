@@ -52,6 +52,8 @@ type Manifest struct {
 type Status struct {
 	ID, Name, Version string
 	Hooks             []string
+	Disabled          bool   // explicitly disabled by the administrator
+	BlockedBy         string // inactive dependency, if any
 }
 
 type loadedPlugin struct {
@@ -284,7 +286,12 @@ func sameTypes(a, b []api.ValueType) bool {
 // ignis_hook(i32 ptr,i32 len)->i64 (high 32 bits=output ptr, low 32=length).
 // Invalid plugin results are returned as errors and are never trusted as HTML.
 func (m *Manager) RunHook(ctx context.Context, hook string, input any) ([][]byte, error) {
-	if m == nil {
+	return m.RunEnabledHook(ctx, hook, input, nil)
+}
+
+// RunEnabledHook applies one immutable administrative settings snapshot.
+func (m *Manager) RunEnabledHook(ctx context.Context, hook string, input any, disabled map[string]bool) ([][]byte, error) {
+	if m == nil || len(m.plugins) == 0 {
 		return nil, nil
 	}
 	encoded, err := json.Marshal(input)
@@ -298,8 +305,9 @@ func (m *Manager) RunHook(ctx context.Context, hook string, input any) ([][]byte
 	defer cancel()
 	var results [][]byte
 	var errs []error
+	blocked := m.inactive(disabled)
 	for _, item := range m.plugins {
-		if !contains(item.manifest.Hooks, hook) {
+		if disabled[item.manifest.ID] || blocked[item.manifest.ID] != "" || !contains(item.manifest.Hooks, hook) {
 			continue
 		}
 		result, err := m.invoke(ctx, item, hook, encoded)
@@ -314,7 +322,7 @@ func (m *Manager) RunHook(ctx context.Context, hook string, input any) ([][]byte
 
 func (m *Manager) invoke(parent context.Context, item loadedPlugin, hook string, input []byte) ([]byte, error) {
 	ctx := parent
-	mod, err := m.runtime.InstantiateModule(ctx, item.module, wazero.NewModuleConfig().WithName(item.manifest.ID).WithStartFunctions())
+	mod, err := m.runtime.InstantiateModule(ctx, item.module, wazero.NewModuleConfig().WithName("").WithStartFunctions())
 	if err != nil {
 		return nil, fmt.Errorf("instantiate: %w", err)
 	}
@@ -378,14 +386,37 @@ func contains(values []string, wanted string) bool {
 }
 
 func (m *Manager) Status() []Status {
+	return m.ConfiguredStatus(nil)
+}
+
+func (m *Manager) ConfiguredStatus(disabled map[string]bool) []Status {
 	if m == nil {
 		return nil
 	}
 	out := make([]Status, 0, len(m.plugins))
+	blocked := m.inactive(disabled)
 	for _, item := range m.plugins {
-		out = append(out, Status{ID: item.manifest.ID, Name: item.manifest.Name, Version: item.manifest.Version, Hooks: append([]string(nil), item.manifest.Hooks...)})
+		id := item.manifest.ID
+		out = append(out, Status{ID: id, Name: item.manifest.Name, Version: item.manifest.Version, Hooks: append([]string(nil), item.manifest.Hooks...), Disabled: disabled[id], BlockedBy: blocked[id]})
 	}
 	return out
+}
+
+// Plugins are already sorted with dependencies first by Load.
+func (m *Manager) inactive(disabled map[string]bool) map[string]string {
+	if len(disabled) == 0 {
+		return nil
+	}
+	blocked := make(map[string]string)
+	for _, item := range m.plugins {
+		for _, dep := range item.manifest.Depends {
+			if disabled[dep.ID] || blocked[dep.ID] != "" {
+				blocked[item.manifest.ID] = dep.ID
+				break
+			}
+		}
+	}
+	return blocked
 }
 
 func (m *Manager) Close(ctx context.Context) error {

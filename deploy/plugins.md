@@ -36,13 +36,18 @@ direct forum database access. All imports are rejected during package loading.
 Dependencies require exact installed versions and are initialized in stable
 dependency order; cycles and missing/mismatched versions are rejected.
 
-The appearance page (`/admin/appearance`) lists installed WASM packages. It
-can configure the built-in modules described below, not the WASM packages.
-Package install, preview, enable/disable, per-plugin configuration,
-permissions/capability grants, health UI, and hot rollback are not implemented.
-Until that administration exists, package changes must be made by a trusted
-operator with filesystem access and deployed as an atomic release. Do not expose
-the plugin directory as a web upload destination.
+The appearance page (`/admin/appearance#wasm`) lists installed WASM packages
+and can enable or disable individual packages without restarting the forum.
+Disabling a dependency suspends its dependents transitively without changing
+their individual settings. Changes persist in the forum database and apply
+to subsequent requests; a hook already running may finish. Disabled packages
+are still validated at startup. Remove a broken package via the filesystem
+before restarting if it fails validation.
+
+Package installation, preview, per-plugin configuration, capability grants,
+health UI and version rollback are not implemented in the panel. Filesystem
+package changes must be made by a trusted operator and deployed as an atomic
+release. Do not expose the plugin directory as a web upload destination.
 
 ## Built-in modules
 

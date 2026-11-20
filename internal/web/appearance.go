@@ -11,11 +11,14 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/go-chi/chi/v5"
+
 	"github.com/buraksocial/IgnisForum/internal/domain"
 	"github.com/buraksocial/IgnisForum/internal/perm"
 )
 
 const appearanceKey = "settings:appearance"
+const pluginSettingsKey = "settings:plugins-disabled"
 
 var accentColor = regexp.MustCompile(`^#[0-9a-fA-F]{6}$`)
 
@@ -46,11 +49,77 @@ func (srv *Server) adminAppearance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	d := srv.base(r, "Görünüm ve eklentiler", "admin", nil)
-	d.Extensions = srv.D.Plugins.Status()
+	disabled, err := srv.disabledPlugins()
+	if err != nil {
+		http.Error(w, "Eklenti ayarları okunamadı.", http.StatusInternalServerError)
+		return
+	}
+	d.Extensions = srv.D.Plugins.ConfiguredStatus(disabled)
 	if theme, _, ok := srv.themes.Get(r.URL.Query().Get("preview")); ok {
 		d.ThemeID, d.ThemeVersion = theme.ID, theme.Version
 	}
 	srv.render(w, "admin_appearance", d)
+}
+
+func (srv *Server) disabledPlugins() (map[string]bool, error) {
+	var disabled map[string]bool
+	_, err := srv.Store.GetJSON(pluginSettingsKey, &disabled)
+	return disabled, err
+}
+
+func (srv *Server) savePluginState(w http.ResponseWriter, r *http.Request) {
+	admin := srv.requireAdmin(w, r)
+	if admin == nil {
+		return
+	}
+	if err := r.ParseForm(); err != nil || !csrfOK(r, r.PostForm.Get("csrf")) {
+		srv.deny(w, r, "Form doğrulanamadı.")
+		return
+	}
+	id, action := chi.URLParam(r, "pluginID"), r.PostForm.Get("action")
+	if action != "enable" && action != "disable" {
+		http.Error(w, "Geçersiz eklenti işlemi.", http.StatusBadRequest)
+		return
+	}
+	found := false
+	for _, status := range srv.D.Plugins.Status() {
+		if status.ID == id {
+			found = true
+			break
+		}
+	}
+	if !found {
+		http.NotFound(w, r)
+		return
+	}
+	if ok, retry := srv.D.RL.Allow("plugin-state", itoa(admin.ID), 20, time.Minute); !ok {
+		srv.tooMany(w, r, retry)
+		return
+	}
+	if err := srv.setPluginDisabled(id, action == "disable"); err != nil {
+		http.Error(w, "Eklenti ayarı kaydedilemedi.", http.StatusInternalServerError)
+		return
+	}
+	log.Printf("plugin %s action=%s admin=%d", id, action, admin.ID)
+	http.Redirect(w, r, "/admin/appearance#wasm", http.StatusSeeOther)
+}
+
+func (srv *Server) setPluginDisabled(id string, value bool) error {
+	srv.pluginSettingsMu.Lock()
+	defer srv.pluginSettingsMu.Unlock()
+	disabled, err := srv.disabledPlugins()
+	if err != nil {
+		return err
+	}
+	if disabled == nil {
+		disabled = make(map[string]bool)
+	}
+	if value {
+		disabled[id] = true
+	} else {
+		delete(disabled, id)
+	}
+	return srv.Store.PutJSON(pluginSettingsKey, disabled)
 }
 
 func (srv *Server) saveAppearance(w http.ResponseWriter, r *http.Request) {

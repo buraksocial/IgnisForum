@@ -17,6 +17,7 @@ import (
 	"github.com/buraksocial/IgnisForum/internal/auth"
 	"github.com/buraksocial/IgnisForum/internal/domain"
 	"github.com/buraksocial/IgnisForum/internal/perm"
+	"github.com/buraksocial/IgnisForum/internal/plugin"
 	"github.com/buraksocial/IgnisForum/internal/repo"
 	"github.com/buraksocial/IgnisForum/internal/store"
 	"github.com/go-chi/chi/v5"
@@ -26,7 +27,7 @@ import (
 // are forbidden): 1 category, 1 forum, 1 thread, 1 reply, plus the auth
 // services and the stock permission matrix. It returns a live httptest.Server
 // so the auth flows exercise real cookies.
-func newTestServer(t *testing.T) (*httptest.Server, *store.Store, *repo.Repos, *auth.Service, *perm.Engine) {
+func newTestServer(t *testing.T, plugins ...*plugin.Manager) (*httptest.Server, *store.Store, *repo.Repos, *auth.Service, *perm.Engine) {
 	t.Helper()
 	s, err := store.Open(store.OpenConfig{DataDir: t.TempDir(), CacheSize: 4 << 20, MemtableSize: 1 << 20})
 	if err != nil {
@@ -65,6 +66,9 @@ func newTestServer(t *testing.T) (*httptest.Server, *store.Store, *repo.Repos, *
 	}
 	srv := &Server{Store: s, Repos: r, D: Deps{Auth: authSvc, Users: users, RL: rl, Perms: perms},
 		themes: themes, tmpl: loadTemplates(assets.FS)}
+	if len(plugins) > 0 {
+		srv.D.Plugins = plugins[0]
+	}
 	ts := httptest.NewServer(srv.router())
 	t.Cleanup(ts.Close)
 	return ts, s, r, authSvc, perms
