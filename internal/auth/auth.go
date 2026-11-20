@@ -85,6 +85,13 @@ func (a *Service) VerifyPassword(password, encoded string) bool {
 		encoded = "$2a$" + encoded[4:]
 	}
 	if strings.HasPrefix(encoded, "$2a$") {
+		cost, err := bcrypt.Cost([]byte(encoded))
+		// PHP bcrypt hashes in Flarum use ordinary costs (typically 10).
+		// Bound attacker- or import-controlled values before bcrypt's exponential
+		// work factor is evaluated by CompareHashAndPassword.
+		if err != nil || cost < bcrypt.MinCost || cost > 16 {
+			return false
+		}
 		return bcrypt.CompareHashAndPassword([]byte(encoded), []byte(password)) == nil
 	}
 	parts := strings.Split(encoded, "$")

@@ -62,6 +62,10 @@ func TestFlarumBcryptVerificationAndLoginRehash(t *testing.T) {
 	if a.VerifyPassword("incorrect-password", flarumHash) {
 		t.Fatal("bcrypt accepted incorrect password")
 	}
+	tooExpensive := strings.Replace(flarumHash, "$2y$04$", "$2y$31$", 1)
+	if tooExpensive == flarumHash || a.VerifyPassword("anything", tooExpensive) {
+		t.Fatal("bcrypt accepted an unsafe cost")
+	}
 	user, err := users.CreateUserDirect(901, "flarumuser", "flarum@example.test", flarumHash, []uint64{GroupMember}, 0)
 	if err != nil {
 		t.Fatal(err)
