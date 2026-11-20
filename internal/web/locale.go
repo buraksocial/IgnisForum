@@ -14,7 +14,7 @@ type uiLocale struct {
 }
 
 var turkish = &uiLocale{"tr", "ltr", "02.01.2006", map[string]string{
-	"nav.forums": "Forumlar", "nav.latest": "Yeni içerikler", "nav.search": "Ara",
+	"nav.forums": "Forumlar", "nav.latest": "Yeni içerikler", "nav.search": "Ara", "nav.menu": "Menüyü aç",
 	"nav.notifications": "Bildirimler", "nav.admin": "Yönetim", "nav.home": "Ana Sayfa",
 	"nav.login": "Giriş", "nav.register": "Kayıt", "nav.logout": "Çıkış",
 	"admin.home": "Yönetim merkezi", "admin.back": "Yönetime dön", "admin.appearance": "Görünüm ve eklentiler", "admin.manage_appearance": "Temaları ve eklentileri yönet",
@@ -82,7 +82,7 @@ var turkish = &uiLocale{"tr", "ltr", "02.01.2006", map[string]string{
 }, nil}
 
 var englishPreview = &uiLocale{"en", "ltr", "2 Jan 2006", map[string]string{
-	"nav.forums": "Forums", "nav.latest": "Latest activity", "nav.search": "Search",
+	"nav.forums": "Forums", "nav.latest": "Latest activity", "nav.search": "Search", "nav.menu": "Open menu",
 	"nav.notifications": "Notifications", "nav.admin": "Administration", "nav.home": "Home",
 	"nav.login": "Log in", "nav.register": "Register", "nav.logout": "Log out",
 	"admin.home": "Administration center", "admin.back": "Back to administration", "admin.appearance": "Appearance and plugins", "admin.manage_appearance": "Manage themes and plugins",

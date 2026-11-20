@@ -2,7 +2,7 @@
 {{template "header" .}}
 <h1>{{.Locale.Text "search.title"}}</h1>
 <form method="get" action="/search" style="max-width:560px;margin-bottom:24px">
-  <div class="form-row"><input type="search" name="q" value="{{.Query}}" placeholder="{{.Locale.Text "search.placeholder"}}" autofocus></div>
+  <div class="form-row"><input type="search" name="q" aria-label="{{.Locale.Text "search.title"}}" value="{{.Query}}" placeholder="{{.Locale.Text "search.placeholder"}}" autofocus></div>
   <button type="submit" class="btn btn-primary">{{.Locale.Text "nav.search"}}</button>
 </form>
 {{if .HaveQ}}

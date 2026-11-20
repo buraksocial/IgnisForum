@@ -9,6 +9,33 @@
 <body>
 <header class="site-header"><div class="container inner">
 <a class="logo" href="/">Ignis<span>Forum</span></a>
+<details class="mobile-nav">
+  <summary aria-label="{{.Locale.Text "nav.menu"}}"><span class="mobile-nav-icon" aria-hidden="true">☰</span><span class="sr-only">{{.Locale.Text "nav.menu"}}</span></summary>
+  <div class="mobile-nav-panel">
+    <nav class="mobile-nav-links" aria-label="{{.Locale.Text "nav.menu"}}">
+      <a href="/" class="{{if eq .Nav "home"}}active{{end}}">{{.Locale.Text "nav.forums"}}</a>
+      <a href="/latest" class="{{if eq .Nav "latest"}}active{{end}}">{{.Locale.Text "nav.latest"}}</a>
+      <a href="/search" class="{{if eq .Nav "search"}}active{{end}}">{{.Locale.Text "nav.search"}}</a>
+      {{if .Me}}<a href="/notifications" class="{{if eq .Nav "notifications"}}active{{end}}">{{.Locale.Text "nav.notifications"}}{{if gt .UnreadNotifications 0}} <span class="notification-badge">{{.UnreadNotifications}}</span>{{end}}</a>{{end}}
+      {{if .Admin}}<a href="/admin" class="{{if eq .Nav "admin"}}active{{end}}">{{.Locale.Text "nav.admin"}}</a>{{end}}
+    </nav>
+    <div class="mobile-nav-account">
+      <span class="mobile-nav-label">{{.Locale.Text "theme.menu"}}</span>
+      {{range .ThemeOptions}}<a href="/theme/{{.ID}}?next={{$.ThemeBack}}">{{.Name}}</a>{{end}}
+      <button type="button" class="theme-toggle" title="{{.Locale.Text "theme.toggle"}}" onclick="(function(){var h=document.documentElement;h.dataset.colorScheme=h.dataset.colorScheme==='dark'?'light':'dark';try{localStorage.setItem('ignis-theme',h.dataset.colorScheme)}catch(e){}})()">◐ <span>{{.Locale.Text "theme.toggle"}}</span></button>
+      {{if .Me}}
+      <a href="/members/{{.Me.ID}}">{{.Me.Username}}</a>
+      <form method="post" action="/logout">
+        <input type="hidden" name="csrf" value="{{.CSRF}}">
+        <button type="submit" class="mobile-nav-action">{{.Locale.Text "nav.logout"}}</button>
+      </form>
+      {{else}}
+      <a href="/login">{{.Locale.Text "nav.login"}}</a>
+      <a class="mobile-nav-primary" href="/register">{{.Locale.Text "nav.register"}}</a>
+      {{end}}
+    </div>
+  </div>
+</details>
 <nav class="main-nav">
   <a href="/" class="{{if eq .Nav "home"}}active{{end}}">{{.Locale.Text "nav.forums"}}</a>
   <a href="/latest" class="{{if eq .Nav "latest"}}active{{end}}">{{.Locale.Text "nav.latest"}}</a>
