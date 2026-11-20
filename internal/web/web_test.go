@@ -140,11 +140,7 @@ func TestThreadFollowAndViewUpdateMemberState(t *testing.T) {
 	if user == nil {
 		t.Fatal("registered fixture user missing")
 	}
-	threadIDs := repos.Threads.List(2, "last", 0, 10)
-	if len(threadIDs) == 0 {
-		t.Fatal("fixture thread missing")
-	}
-	thread, ok := repos.Threads.Get(threadIDs[0])
+	thread, ok := repos.Threads.Get(3)
 	if !ok {
 		t.Fatal("fixture thread missing")
 	}
@@ -183,6 +179,21 @@ func TestThreadFollowAndViewUpdateMemberState(t *testing.T) {
 	response = formPost(t, member, followURL, url.Values{})
 	if response.StatusCode != http.StatusForbidden {
 		t.Fatalf("follow without CSRF status=%d", response.StatusCode)
+	}
+}
+
+func TestQuotePrefillsReplyOnlyFromSameThread(t *testing.T) {
+	ts, _, repos, _, _ := newTestServer(t)
+	member := register(t, ts, "quotereplier")
+	postID := repos.Posts.List(3, 0, 1)[0]
+	code, body, _ := getBody(t, member, ts.URL+"/t/3?quote="+itoa(postID))
+	if code != http.StatusOK || !strings.Contains(body, "[quote]\nmerhaba [b]dünya[/b] aramakolay\n[/quote]") {
+		t.Fatalf("quote was not safely prefixed in reply form: status=%d", code)
+	}
+	otherPostID := uint64(999999)
+	code, body, _ = getBody(t, member, ts.URL+"/t/3?quote="+itoa(otherPostID))
+	if code != http.StatusOK || strings.Contains(body, "[quote]\nmerhaba [b]dünya[/b]") {
+		t.Fatalf("invalid quote post unexpectedly prefills reply: status=%d", code)
 	}
 }
 

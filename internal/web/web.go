@@ -25,6 +25,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
@@ -202,10 +203,11 @@ type pageData struct {
 	CanThread  bool
 
 	// thread
-	Thread    *domain.Thread
-	Posts     []postRow
-	CanReply  bool
-	Following bool
+	Thread     *domain.Thread
+	Posts      []postRow
+	CanReply   bool
+	Following  bool
+	ReplyDraft string
 
 	// search
 	Query string
@@ -696,12 +698,24 @@ func (srv *Server) thread(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	d.CanReply = th.Status == domain.ThreadOpen && srv.can(r, d.Me, perm.ScopeNode, th.NodeID, perm.KeyForumReply)
+	if d.CanReply {
+		if quoteID := parseID(r.URL.Query().Get("quote")); quoteID != 0 {
+			if quoted, ok := srv.Repos.Posts.Get(quoteID); ok && quoted.ThreadID == threadID && quoted.State == 0 {
+				quoteText := quoted.MessageRaw
+				if utf8.RuneCountInString(quoteText) > 3000 {
+					runes := []rune(quoteText)
+					quoteText = string(runes[:3000])
+				}
+				d.ReplyDraft = "[quote]\n" + quoteText + "\n[/quote]\n\n"
+			}
+		}
+	}
 	d.Thread = th
 	d.Posts = rows
 	d.Page = page
 	d.TotalPages = pageCount(srv.Store.ZCard(repo.ThreadPostsKey(threadID)), pageSize)
 	d.PageWindow = pageWindow(page, d.TotalPages)
-	d.CanReply = th.Status == domain.ThreadOpen && srv.can(r, d.Me, perm.ScopeNode, th.NodeID, perm.KeyForumReply)
 	srv.render(w, "thread", d)
 }
 

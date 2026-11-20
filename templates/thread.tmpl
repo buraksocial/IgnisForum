@@ -27,6 +27,7 @@
   <div class="post-foot">
     {{if .Edited}}<span class="muted">Son düzenleme: {{.Author}} · {{ago .Date}}</span>{{end}}
     <a href="#post-{{.ID}}" title="Kalıcı bağlantı">#{{.Number}}</a>
+    {{if $page.CanReply}}<a href="/t/{{$page.Thread.ID}}?quote={{.ID}}#reply">Alıntıla</a>{{end}}
     {{if .CanEdit}}<details class="post-edit"><summary>Düzenle</summary>
       <form method="post" action="/t/{{$page.Thread.ID}}/post/{{.ID}}/edit">
         <input type="hidden" name="csrf" value="{{$page.CSRF}}">
@@ -61,10 +62,10 @@
 {{end}}
 {{template "pager" .}}
 {{if .CanReply}}
-<form class="reply-box" method="post" action="/t/{{.Thread.ID}}/reply">
+<form class="reply-box" id="reply" method="post" action="/t/{{.Thread.ID}}/reply">
   <input type="hidden" name="csrf" value="{{.CSRF}}">
   <label>Hızlı Yanıt</label>
-  <textarea name="message" rows="5" required placeholder="Cevabınızı yazın… ([b]kalın[/b], [quote]alıntı[/quote], [code]kod[/code])"></textarea>
+  <textarea name="message" rows="5" required placeholder="Cevabınızı yazın… ([b]kalın[/b], [quote]alıntı[/quote], [code]kod[/code])">{{.ReplyDraft}}</textarea>
   <div style="margin-top:10px"><button type="submit" class="btn btn-primary">Yanıtla</button></div>
 </form>
 {{else if not .Me}}
