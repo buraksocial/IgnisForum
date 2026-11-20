@@ -64,6 +64,28 @@ func (p *PostRepo) Get(id uint64) (*domain.Post, bool) {
 	return &post, true
 }
 
+// Edit replaces a post body while retaining its original chronological date.
+// The store has a single writer, so read-modify-write and index refresh happen
+// serially with all other forum mutations.
+func (p *PostRepo) Edit(id uint64, message string) (*domain.Post, error) {
+	post, ok := p.Get(id)
+	if !ok || post.State != 0 {
+		return nil, fmt.Errorf("post %d not found or not editable", id)
+	}
+	post.MessageRaw = message
+	post.MessageRendered = bbcode.Render(message)
+	post.EditCount++
+	post.EditedAt = time.Now().UTC()
+	post.Version++
+	if err := p.r.S.PutJSON(keyPost(id), post); err != nil {
+		return nil, err
+	}
+	if thread, ok := p.r.Threads.Get(post.ThreadID); ok {
+		p.r.S.FTAdd(fmt.Sprintf("post:%d", post.ID), thread.Title+" "+post.MessageRendered)
+	}
+	return post, nil
+}
+
 // List returns a page of post IDs in a thread, oldest first (chronological).
 func (p *PostRepo) List(threadID uint64, offset, n int) []uint64 {
 	return p.r.S.ZOldest(ThreadPostsKey(threadID), offset, n)

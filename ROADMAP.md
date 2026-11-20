@@ -14,8 +14,10 @@ The old forum and its MariaDB data remain authoritative until cutover acceptance
   global and node permissions, roles, moderation queue, reports, and audit trail.
 - [x] Add protected node/category/forum creation, editing, reparenting, and
   empty-only deletion with hierarchy and content-preservation checks.
-- [ ] Complete core community workflows: edit/delete/quote, thread prefixes and
+- [ ] Complete core community workflows: delete/quote, thread prefixes and
   tags, polls, attachments, profiles, notifications, private messages, and follows.
+- [x] Add time-limited author post editing plus administrator editing, with
+  CSRF/rate-limit checks and full-text index refresh.
 - [ ] Add safe theme support: theme manifests, parent/child themes, per-user
   preference, preview/rollback, and cache invalidation without editing templates.
 - [ ] Add an extension system with a versioned, capability-limited API, lifecycle

@@ -529,6 +529,69 @@ func TestAdminNodeManagementCreatesMovesEditsAndProtectsContent(t *testing.T) {
 	resp.Body.Close()
 }
 
+func TestPostEditOwnAuthorizationCSRFAndReindex(t *testing.T) {
+	ts, _, repos, _, _ := newTestServer(t)
+	member := register(t, ts, "posteditor")
+	forumID := uint64(0)
+	tree, _ := repos.Nodes.LoadTree()
+	forumID = tree.Categories[0].Forums[0].NodeID
+	csrf := mustFindCSRF(t, member, ts.URL+"/f/"+itoa(forumID)+"/new")
+	resp := formPost(t, member, ts.URL+"/f/"+itoa(forumID)+"/new", url.Values{"csrf": {csrf}, "title": {"Editable topic"}, "message": {"Original phrase"}})
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("create topic = %d", resp.StatusCode)
+	}
+	location := resp.Header.Get("Location")
+	resp.Body.Close()
+	threadID := parseID(strings.TrimPrefix(location, "/t/"))
+	thread, ok := repos.Threads.Get(threadID)
+	if !ok {
+		t.Fatal("created thread not found")
+	}
+	postID := thread.FirstPostID
+	csrf = mustFindCSRF(t, member, ts.URL+location)
+	resp = formPost(t, member, ts.URL+"/t/"+itoa(threadID)+"/post/"+itoa(postID)+"/edit", url.Values{"csrf": {"bad"}, "message": {"Forged"}})
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("invalid edit csrf = %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+	resp = formPost(t, member, ts.URL+"/t/"+itoa(threadID)+"/post/"+itoa(postID)+"/edit", url.Values{"csrf": {csrf}, "message": {"Updated phrase [b]bold[/b]"}})
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("edit own post = %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+	post, ok := repos.Posts.Get(postID)
+	if !ok || post.MessageRaw != "Updated phrase [b]bold[/b]" || !strings.Contains(post.MessageRendered, "<strong>bold</strong>") || post.EditCount != 1 || post.EditedAt.IsZero() {
+		t.Fatalf("edited post = %+v", post)
+	}
+	hits := repos.S.FTSearch("Updated", 10)
+	found := false
+	for _, hit := range hits {
+		if hit.DocID == "post:"+itoa(postID) {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("edited post was not refreshed in full-text search")
+	}
+	var otherThreadID, otherPostID uint64
+	for _, candidateID := range repos.Threads.List(forumID, "new", 0, 20) {
+		candidate, exists := repos.Threads.Get(candidateID)
+		if !exists || candidateID == threadID || candidate.UserID == thread.UserID {
+			continue
+		}
+		otherThreadID, otherPostID = candidate.ID, candidate.FirstPostID
+		break
+	}
+	if otherThreadID == 0 {
+		t.Fatal("fixture did not provide another author's post")
+	}
+	resp = formPost(t, member, ts.URL+"/t/"+itoa(otherThreadID)+"/post/"+itoa(otherPostID)+"/edit", url.Values{"csrf": {csrf}, "message": {"someone else's content"}})
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("edit another user's post = %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
 // TestWrongCredentials covers the unified login failure + rate-limit lockout.
 func TestWrongCredentials(t *testing.T) {
 	ts, _, _, _, _ := newTestServer(t)

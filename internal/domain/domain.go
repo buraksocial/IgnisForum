@@ -102,6 +102,7 @@ type Post struct {
 	MessageRaw      string         `json:"message_raw"`
 	MessageRendered string         `json:"message_rendered"`
 	Date            time.Time      `json:"date"`
+	EditedAt        time.Time      `json:"edited_at,omitempty"`
 	State           int            `json:"state"` // 0 visible, 1 moderated, 2 deleted
 	EditCount       int            `json:"edit_count"`
 	ReactionCounts  map[string]int `json:"reaction_counts,omitempty"` // reaction code → count

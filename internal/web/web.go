@@ -99,6 +99,7 @@ func buildRouter(srv *Server) chi.Router {
 	rr.Get("/t/{threadID}", srv.thread)
 	rr.Get("/t/{threadID}/post/{postID}", srv.postRedirect)
 	rr.Post("/t/{threadID}/reply", srv.reply)
+	rr.Post("/t/{threadID}/post/{postID}/edit", srv.editPost)
 	rr.Post("/t/{threadID}/post/{postID}/reaction", srv.react)
 
 	rr.Get("/login", srv.loginForm)
@@ -284,6 +285,8 @@ type postRow struct {
 	Date      time.Time
 	Rendered  template.HTML
 	Edited    bool
+	CanEdit   bool
+	Raw       string
 	Reactions []reactionView
 }
 
@@ -625,6 +628,10 @@ func (srv *Server) thread(w http.ResponseWriter, r *http.Request) {
 			Author: srv.username(post.UserID), Rank: "Üye", Date: post.Date,
 			Rendered: template.HTML(post.MessageRendered),
 			Edited:   post.EditCount > 0,
+			Raw:      post.MessageRaw,
+		}
+		if d.Me != nil {
+			row.CanEdit = d.Me.ID == post.UserID && time.Since(post.Date) <= 15*time.Minute || srv.can(r, d.Me, perm.ScopeGlobal, 0, perm.KeyAdmin)
 		}
 		myReaction := ""
 		if d.Me != nil {
@@ -706,6 +713,47 @@ func (srv *Server) reply(w http.ResponseWriter, r *http.Request) {
 	rank := srv.Store.ZCountUpTo(repo.ThreadPostsKey(threadID), float64(post.Date.Unix()))
 	page := (rank-1)/pageSize + 1
 	http.Redirect(w, r, fmt.Sprintf("/t/%s?p=%d#post-%s", itoa(threadID), page, itoa(post.ID)), http.StatusSeeOther)
+}
+
+func (srv *Server) editPost(w http.ResponseWriter, r *http.Request) {
+	threadID, postID := parseID(chi.URLParam(r, "threadID")), parseID(chi.URLParam(r, "postID"))
+	me := srv.requireAuth(w, r)
+	if me == nil {
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "invalid form", http.StatusBadRequest)
+		return
+	}
+	if !csrfOK(r, r.FormValue("csrf")) {
+		srv.deny(w, r, "CSRF doğrulaması başarısız.")
+		return
+	}
+	post, ok := srv.Repos.Posts.Get(postID)
+	_, threadOK := srv.Repos.Threads.Get(threadID)
+	if !ok || !threadOK || post.ThreadID != threadID || post.State != 0 {
+		srv.notFound(w, r)
+		return
+	}
+	isAdmin := srv.can(r, me, perm.ScopeGlobal, 0, perm.KeyAdmin)
+	if (me.ID != post.UserID || time.Since(post.Date) > 15*time.Minute) && !isAdmin {
+		srv.deny(w, r, "Bu mesajı düzenleme yetkiniz yok.")
+		return
+	}
+	if ok, retry := srv.D.RL.Allow("edit-post", itoa(me.ID), 20, time.Minute); !ok {
+		srv.tooMany(w, r, retry)
+		return
+	}
+	message := strings.TrimSpace(r.FormValue("message"))
+	if message == "" || len(message) > 20000 {
+		http.Error(w, "Mesaj 1 ile 20000 karakter arasında olmalıdır.", http.StatusBadRequest)
+		return
+	}
+	if _, err := srv.Repos.Posts.Edit(postID, message); err != nil {
+		http.Error(w, "Mesaj güncellenemedi.", http.StatusInternalServerError)
+		return
+	}
+	http.Redirect(w, r, "/t/"+itoa(threadID)+"#post-"+itoa(postID), http.StatusSeeOther)
 }
 
 func (srv *Server) react(w http.ResponseWriter, r *http.Request) {

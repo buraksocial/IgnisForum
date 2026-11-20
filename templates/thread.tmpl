@@ -23,6 +23,13 @@
   <div class="post-foot">
     {{if .Edited}}<span class="muted">Son düzenleme: {{.Author}} · {{ago .Date}}</span>{{end}}
     <a href="#post-{{.ID}}" title="Kalıcı bağlantı">#{{.Number}}</a>
+    {{if .CanEdit}}<details class="post-edit"><summary>Düzenle</summary>
+      <form method="post" action="/t/{{$page.Thread.ID}}/post/{{.ID}}/edit">
+        <input type="hidden" name="csrf" value="{{$page.CSRF}}">
+        <textarea name="message" rows="5" maxlength="20000" required>{{.Raw}}</textarea>
+        <button class="btn btn-primary" type="submit">Değişiklikleri kaydet</button>
+      </form>
+    </details>{{end}}
   </div>
   <div class="reaction-row" aria-label="Mesaj tepkileri">
     {{range .Reactions}}
