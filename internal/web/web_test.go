@@ -650,6 +650,41 @@ func TestAdminUserManagementSuspendsAndProtectsSelf(t *testing.T) {
 	}
 }
 
+func TestAdminCustomGroupManagement(t *testing.T) {
+	ts, _, repos, authSvc, perms := newTestServer(t)
+	adminClient := loginAsAdmin(t, ts, repos.S, authSvc)
+	code, body, _ := getBody(t, adminClient, ts.URL+"/admin/groups")
+	if code != http.StatusOK || !strings.Contains(body, "Kullanıcı grupları") {
+		t.Fatalf("groups page = %d", code)
+	}
+	csrf := mustFindCSRF(t, adminClient, ts.URL+"/admin/groups")
+	resp := formPost(t, adminClient, ts.URL+"/admin/groups", url.Values{
+		"csrf": {csrf}, "action": {"create"}, "name": {"Moderators"}, "description": {"Can review reports"},
+	})
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("create group = %d", resp.StatusCode)
+	}
+	var customID uint64
+	for _, group := range perms.ListGroups() {
+		if group.Name == "Moderators" {
+			customID = group.ID
+		}
+	}
+	if customID == 0 {
+		t.Fatal("created group was not persisted")
+	}
+	csrf = mustFindCSRF(t, adminClient, ts.URL+"/admin/groups")
+	resp = formPost(t, adminClient, ts.URL+"/admin/groups", url.Values{
+		"csrf": {csrf}, "action": {"delete"}, "id": {itoa(customID)},
+	})
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("delete group = %d", resp.StatusCode)
+	}
+	if _, ok := perms.GetGroup(customID); ok {
+		t.Fatal("custom group was not deleted")
+	}
+}
+
 // TestAuthE2E is the M2 acceptance walk: register → auto-login → reply with
 // CSRF → post visible under the new username → logout → writes blocked again.
 func TestAuthE2E(t *testing.T) {

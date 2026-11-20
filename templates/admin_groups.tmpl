@@ -1,0 +1,24 @@
+{{define "admin_groups"}}
+{{template "header" .}}
+<div class="toolbar"><h1>{{.Locale.Text "admin.groups"}}</h1><a class="btn" href="/admin">{{.Locale.Text "admin.back"}}</a></div>
+<form class="panel admin-group-form" method="post" action="/admin/groups">
+  <h2>{{.Locale.Text "admin.group_create"}}</h2>
+  <input type="hidden" name="csrf" value="{{.CSRF}}"><input type="hidden" name="action" value="create">
+  <label>{{.Locale.Text "admin.group_name"}}<input name="name" minlength="2" maxlength="80" required></label>
+  <label>{{.Locale.Text "admin.group_description"}}<input name="description" maxlength="500"></label>
+  <button class="btn btn-primary" type="submit">{{.Locale.Text "admin.group_create"}}</button>
+</form>
+<div class="admin-group-list">
+{{range .AdminGroups}}
+<form class="panel admin-group-card" method="post" action="/admin/groups">
+  <input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="id" value="{{.ID}}">
+  {{if .System}}<strong>{{$.Locale.Text .Name}}</strong><span class="muted">{{$.Locale.Text "admin.group_system"}}</span>{{else}}
+    <label>{{$.Locale.Text "admin.group_name"}}<input name="name" value="{{.Name}}" minlength="2" maxlength="80" required></label>
+    <label>{{$.Locale.Text "admin.group_description"}}<input name="description" value="{{.Description}}" maxlength="500"></label>
+    <div class="admin-actions"><button class="btn btn-primary" name="action" value="update">{{$.Locale.Text "profile.save"}}</button><button class="btn btn-danger" name="action" value="delete">{{$.Locale.Text "admin.group_delete"}}</button></div>
+  {{end}}
+</form>
+{{end}}
+</div>
+{{template "footer" .}}
+{{end}}

@@ -8,6 +8,7 @@
 package perm
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -26,6 +27,83 @@ const (
 	KeyUserRegister = "user_register" // may register
 	KeyAdmin        = "admin"         // admin cp
 )
+
+var ErrSystemGroup = errors.New("perm: system group cannot be changed")
+
+func groupKey(id uint64) string { return fmt.Sprintf("group:%d", id) }
+
+// ListGroups enumerates the bounded group high-water mark, skipping deleted
+// records because the store intentionally has no key-scan primitive.
+func (e *Engine) ListGroups() []*domain.Group {
+	max := e.s.MaxID(store.TypeGroup)
+	groups := make([]*domain.Group, 0, 8)
+	for id := uint64(1); id <= max; id++ {
+		var group domain.Group
+		if ok, _ := e.s.GetJSON(groupKey(id), &group); ok {
+			groups = append(groups, &group)
+		}
+	}
+	return groups
+}
+
+func (e *Engine) GetGroup(id uint64) (*domain.Group, bool) {
+	var group domain.Group
+	if ok, _ := e.s.GetJSON(groupKey(id), &group); !ok {
+		return nil, false
+	}
+	return &group, true
+}
+
+func (e *Engine) CreateGroup(name, description string) (*domain.Group, error) {
+	name = strings.TrimSpace(name)
+	description = strings.TrimSpace(description)
+	if len(name) < 2 || len(name) > 80 || len(description) > 500 {
+		return nil, errors.New("perm: invalid group fields")
+	}
+	id := e.s.NextID()
+	e.s.MarkID(store.TypeGroup, id)
+	group := &domain.Group{ID: id, Name: name, Description: description}
+	if err := e.s.PutJSON(groupKey(id), group); err != nil {
+		return nil, err
+	}
+	return group, nil
+}
+
+func (e *Engine) UpdateGroup(id uint64, name, description string) error {
+	group, ok := e.GetGroup(id)
+	if !ok {
+		return errors.New("perm: group not found")
+	}
+	if group.System {
+		return ErrSystemGroup
+	}
+	name = strings.TrimSpace(name)
+	description = strings.TrimSpace(description)
+	if len(name) < 2 || len(name) > 80 || len(description) > 500 {
+		return errors.New("perm: invalid group fields")
+	}
+	group.Name, group.Description = name, description
+	return e.s.PutJSON(groupKey(id), group)
+}
+
+func (e *Engine) DeleteGroup(id uint64) error {
+	group, ok := e.GetGroup(id)
+	if !ok {
+		return errors.New("perm: group not found")
+	}
+	if group.System {
+		return ErrSystemGroup
+	}
+	e.s.Delete(groupKey(id))
+	// Permission scopes are global or node-scoped. Remove both kinds of
+	// derived grant records while walking the bounded node high-water mark.
+	e.s.Delete(keyGrant(id, ScopeGlobal, 0))
+	for nodeID := uint64(1); nodeID <= e.s.MaxID(store.TypeNode); nodeID++ {
+		e.s.Delete(keyGrant(id, ScopeNode, nodeID))
+	}
+	e.invalidate()
+	return nil
+}
 
 // AllKeys is the full matrix (order = stable for tests/admin UI).
 var AllKeys = []string{
@@ -193,6 +271,21 @@ func cacheSig(userID uint64, groups []uint64, ctype string, cid uint64, key stri
 //
 // Idempotent: skips when the member global grant already exists.
 func (e *Engine) Bootstrap() error {
+	// The built-in group IDs are reserved in the shared allocator so the first
+	// generated user/node/etc. cannot collide with a group record.
+	e.s.AdvanceIDFloor(GroupAdmin)
+	for _, group := range []*domain.Group{
+		{ID: GroupGuest, Name: "Guest", System: true},
+		{ID: GroupMember, Name: "Member", System: true},
+		{ID: GroupAdmin, Name: "Administrator", System: true},
+	} {
+		if _, ok := e.GetGroup(group.ID); !ok {
+			if err := e.s.PutJSON(groupKey(group.ID), group); err != nil {
+				return err
+			}
+			e.s.MarkID(store.TypeGroup, group.ID)
+		}
+	}
 	if e.GetGrant(GroupMember, ScopeGlobal, 0) != nil {
 		return nil
 	}

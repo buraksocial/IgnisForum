@@ -110,6 +110,42 @@ func TestBoundaryEveryKey(t *testing.T) {
 	}
 }
 
+func TestCustomGroupLifecycleAndPermissionResolution(t *testing.T) {
+	s := openStore(t)
+	e := NewEngine(s)
+	if err := e.Bootstrap(); err != nil {
+		t.Fatal(err)
+	}
+	group, err := e.CreateGroup("Moderators", "Can review community content")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if group.System || group.ID <= GroupAdmin {
+		t.Fatalf("custom group = %+v", group)
+	}
+	if err := e.SetGrant(group.ID, ScopeGlobal, 0, map[string]bool{KeyForumReply: true}); err != nil {
+		t.Fatal(err)
+	}
+	if !e.Effective(42, []uint64{group.ID}, ScopeGlobal, 0, KeyForumReply) {
+		t.Fatal("custom group grant was not resolved")
+	}
+	if err := e.UpdateGroup(group.ID, "Trusted moderators", "updated"); err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := e.GetGroup(group.ID); !ok || got.Name != "Trusted moderators" {
+		t.Fatalf("updated group = %+v, ok=%v", got, ok)
+	}
+	if err := e.DeleteGroup(GroupAdmin); err != ErrSystemGroup {
+		t.Fatalf("system group delete = %v", err)
+	}
+	if err := e.DeleteGroup(group.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := e.GetGroup(group.ID); ok {
+		t.Fatal("deleted custom group still exists")
+	}
+}
+
 // TestMultiGroupMerge: user in Member + explicit group granting reply where
 // the stock member lacks it (deny at member level) → OR merge allows.
 func TestMultiGroupMerge(t *testing.T) {

@@ -32,6 +32,16 @@ type User struct {
 	WPUserID     int               `json:"wp_user_id,omitempty"` // optional WP bridge link
 }
 
+// Group is an editable permission group. System groups retain their stable
+// IDs for imports and backward compatibility; custom groups can be managed by
+// administrators without changing the permission key format.
+type Group struct {
+	ID          uint64 `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	System      bool   `json:"system"`
+}
+
 // NodeType distinguishes categories from forums in the node tree.
 type NodeType string
 

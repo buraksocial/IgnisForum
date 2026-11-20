@@ -1,6 +1,7 @@
 package web
 
 import (
+	"fmt"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -19,6 +20,24 @@ var adminGroups = []adminGroupView{
 	{ID: perm.GroupGuest, Name: "group.guest"},
 	{ID: perm.GroupMember, Name: "group.member"},
 	{ID: perm.GroupAdmin, Name: "group.admin"},
+}
+
+func (srv *Server) availableGroups() []adminGroupView {
+	groups := make([]adminGroupView, 0)
+	for _, group := range srv.D.Perms.ListGroups() {
+		name := group.Name
+		if group.ID == perm.GroupGuest {
+			name = "group.guest"
+		}
+		if group.ID == perm.GroupMember {
+			name = "group.member"
+		}
+		if group.ID == perm.GroupAdmin {
+			name = "group.admin"
+		}
+		groups = append(groups, adminGroupView{ID: group.ID, Name: name, Description: group.Description, System: group.System})
+	}
+	return groups
 }
 
 var permissionLabels = map[string]string{
@@ -118,7 +137,11 @@ func (srv *Server) saveAdminUser(w http.ResponseWriter, r *http.Request) {
 		groups := make([]uint64, 0, 2)
 		for _, raw := range strings.Split(r.FormValue("groups"), ",") {
 			id, err := strconv.ParseUint(strings.TrimSpace(raw), 10, 64)
-			if err != nil || (id != perm.GroupGuest && id != perm.GroupMember && id != perm.GroupAdmin) {
+			if err != nil {
+				http.Error(w, locale.Text("admin.user_bad_groups"), http.StatusBadRequest)
+				return
+			}
+			if _, exists := srv.D.Perms.GetGroup(id); !exists {
 				http.Error(w, locale.Text("admin.user_bad_groups"), http.StatusBadRequest)
 				return
 			}
@@ -154,6 +177,84 @@ func (srv *Server) saveAdminUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.Redirect(w, r, "/admin/users?p="+strconv.Itoa(parseInt(r, "p", 1)), http.StatusSeeOther)
+}
+
+func (srv *Server) adminGroupsPage(w http.ResponseWriter, r *http.Request) {
+	if srv.requireAdmin(w, r) == nil {
+		return
+	}
+	d := srv.base(r, srv.uiLocale().Text("admin.groups"), "admin", []Crumb{{URL: "/admin", Title: srv.uiLocale().Text("nav.admin")}})
+	d.AdminGroups = srv.availableGroups()
+	srv.render(w, "admin_groups", d)
+}
+
+func (srv *Server) saveAdminGroup(w http.ResponseWriter, r *http.Request) {
+	locale := srv.uiLocale()
+	admin := srv.requireAdmin(w, r)
+	if admin == nil {
+		return
+	}
+	if err := r.ParseForm(); err != nil || !csrfOK(r, r.FormValue("csrf")) {
+		srv.deny(w, r, locale.Text("auth.bad_csrf"))
+		return
+	}
+	if ok, retry := srv.D.RL.Allow("admin-groups", strconv.FormatUint(admin.ID, 10), 20, time.Minute); !ok {
+		srv.tooMany(w, r, retry)
+		return
+	}
+	action := r.FormValue("action")
+	id, _ := strconv.ParseUint(r.FormValue("id"), 10, 64)
+	var err error
+	switch action {
+	case "create":
+		var group *domain.Group
+		group, err = srv.D.Perms.CreateGroup(r.FormValue("name"), r.FormValue("description"))
+		if err == nil {
+			err = srv.recordAdminAudit(admin.ID, "audit.group_create", "group", group.ID, group.Name)
+		}
+	case "update":
+		err = srv.D.Perms.UpdateGroup(id, r.FormValue("name"), r.FormValue("description"))
+		if err == nil {
+			err = srv.recordAdminAudit(admin.ID, "audit.group_update", "group", id, r.FormValue("name"))
+		}
+	case "delete":
+		group, exists := srv.D.Perms.GetGroup(id)
+		if !exists {
+			err = fmt.Errorf("group not found")
+		} else if group.System {
+			err = perm.ErrSystemGroup
+		} else if srv.groupInUse(id) {
+			err = fmt.Errorf("group in use")
+		} else {
+			err = srv.D.Perms.DeleteGroup(id)
+			if err == nil {
+				err = srv.recordAdminAudit(admin.ID, "audit.group_delete", "group", id, group.Name)
+			}
+		}
+	default:
+		err = fmt.Errorf("invalid group action")
+	}
+	if err != nil {
+		http.Error(w, locale.Text("admin.group_save_failed"), http.StatusBadRequest)
+		return
+	}
+	http.Redirect(w, r, "/admin/groups", http.StatusSeeOther)
+}
+
+func (srv *Server) groupInUse(id uint64) bool {
+	page := 0
+	for {
+		users, total := srv.D.Users.List(page*pageSize, pageSize)
+		for _, user := range users {
+			if containsGroup(user.GroupIDs, id) {
+				return true
+			}
+		}
+		page++
+		if page*pageSize >= total || len(users) == 0 {
+			return false
+		}
+	}
 }
 
 func containsGroup(groups []uint64, want uint64) bool {
@@ -372,7 +473,7 @@ func (srv *Server) adminPermissions(w http.ResponseWriter, r *http.Request) {
 }
 
 func (srv *Server) fillAdminPermissionRows(d *pageData) {
-	d.AdminGroups = adminGroups
+	d.AdminGroups = srv.availableGroups()
 	if tree, err := srv.Repos.Nodes.LoadTree(); err == nil {
 		for _, cat := range tree.Categories {
 			d.AdminNodes = append(d.AdminNodes, adminNodeOption{ID: cat.NodeID, Title: cat.Title, Type: "Kategori"})
@@ -387,7 +488,7 @@ func (srv *Server) fillAdminPermissionRows(d *pageData) {
 	}
 	for _, key := range perm.AllKeys {
 		row := adminPermissionRow{Key: key, Label: permissionLabels[key]}
-		for _, group := range adminGroups {
+		for _, group := range srv.availableGroups() {
 			value := "inherit"
 			if grants := srv.D.Perms.GetGrant(group.ID, ctype, cid); grants != nil {
 				if allowed, exists := grants[key]; exists {
@@ -437,7 +538,7 @@ func (srv *Server) saveAdminPermissions(w http.ResponseWriter, r *http.Request) 
 		srv.tooMany(w, r, retry)
 		return
 	}
-	for _, group := range adminGroups {
+	for _, group := range srv.availableGroups() {
 		grants := srv.D.Perms.GetGrant(group.ID, scope, cid)
 		if grants == nil {
 			grants = make(map[string]bool)

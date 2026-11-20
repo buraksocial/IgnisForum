@@ -140,6 +140,8 @@ func buildRouter(srv *Server) chi.Router {
 	rr.Post("/admin/nodes", srv.saveAdminNode)
 	rr.Get("/admin/users", srv.adminUsers)
 	rr.Post("/admin/users/{userID}", srv.saveAdminUser)
+	rr.Get("/admin/groups", srv.adminGroupsPage)
+	rr.Post("/admin/groups", srv.saveAdminGroup)
 	rr.Get("/admin/audit", srv.adminAudit)
 	rr.Get("/admin/reports", srv.adminReports)
 	rr.Post("/admin/reports/{reportID}/resolve", srv.resolveReport)
@@ -361,8 +363,10 @@ type adminAuditRow struct {
 	CreatedAt  time.Time
 }
 type adminGroupView struct {
-	ID   uint64
-	Name string
+	ID          uint64
+	Name        string
+	Description string
+	System      bool
 }
 type adminPermissionCell struct{ Name, Value string }
 type adminPermissionRow struct {
