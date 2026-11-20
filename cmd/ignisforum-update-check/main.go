@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/ed25519"
 	"encoding/base64"
 	"encoding/json"
@@ -17,21 +18,43 @@ import (
 )
 
 func main() {
-	if err := run(); err != nil {
+	if err := run(os.Args[1:], os.Stdout); err != nil {
 		log.Fatal(err)
 	}
 }
 
-func run() error {
-	metadata := flag.String("metadata", "", "path to signed metadata JSON")
-	signature := flag.String("signature", "", "path to detached base64 Ed25519 signature")
-	pubkey := flag.String("public-key", "", "path to independently provisioned base64 Ed25519 public key")
-	channel := flag.String("channel", "", "stable or security")
-	installed := flag.String("installed", "", "currently installed MAJOR.MINOR.PATCH version")
-	artifact := flag.String("artifact", "", "optional staged artifact path (not installed)")
-	flag.Parse()
-	if *metadata == "" || *signature == "" || *pubkey == "" || *channel == "" || *installed == "" || flag.NArg() != 0 {
-		return fmt.Errorf("metadata, signature, public-key, channel and installed flags are required")
+func run(args []string, out io.Writer) error {
+	flags := flag.NewFlagSet("ignisforum-update-check", flag.ContinueOnError)
+	metadata := flags.String("metadata", "", "path to signed metadata JSON")
+	signature := flags.String("signature", "", "path to detached base64 Ed25519 signature")
+	pubkey := flags.String("public-key", "", "path to independently provisioned base64 Ed25519 public key")
+	channel := flags.String("channel", "", "stable or security")
+	installed := flags.String("installed", "", "currently installed MAJOR.MINOR.PATCH version")
+	artifact := flags.String("artifact", "", "optional staged artifact path (local mode only)")
+	feed := flags.String("feed", "", "operator-configured HTTPS release feed (metadata only)")
+	if err := flags.Parse(args); err != nil {
+		if err == flag.ErrHelp {
+			return nil
+		}
+		return err
+	}
+	if *pubkey == "" || *channel == "" || *installed == "" || flags.NArg() != 0 {
+		return fmt.Errorf("public-key, channel and installed flags are required")
+	}
+	if (*feed != "" && (*metadata != "" || *signature != "" || *artifact != "")) || (*feed == "" && (*metadata == "" || *signature == "")) {
+		return fmt.Errorf("use either -feed alone or local -metadata and -signature (with optional -artifact)")
+	}
+	key, err := readBase64(*pubkey, ed25519.PublicKeySize)
+	if err != nil {
+		return err
+	}
+	policy := release.Policy{Channel: *channel, Installed: *installed, Platform: runtime.GOOS + "/" + runtime.GOARCH}
+	if *feed != "" {
+		result, err := release.CheckFeed(context.Background(), *feed, key, policy)
+		if err != nil {
+			return err
+		}
+		return json.NewEncoder(out).Encode(result)
 	}
 	raw, err := readLimited(*metadata, release.MaxMetadata)
 	if err != nil {
@@ -41,11 +64,8 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	key, err := readBase64(*pubkey, ed25519.PublicKeySize)
-	if err != nil {
-		return err
-	}
-	m, err := release.Verify(raw, sig, key, release.Policy{Channel: *channel, Installed: *installed, Platform: runtime.GOOS + "/" + runtime.GOARCH, Now: time.Now()})
+	policy.Now = time.Now()
+	m, err := release.Verify(raw, sig, key, policy)
 	if err != nil {
 		return err
 	}
@@ -59,7 +79,7 @@ func run() error {
 			return err
 		}
 	}
-	return json.NewEncoder(os.Stdout).Encode(struct {
+	return json.NewEncoder(out).Encode(struct {
 		Version          string `json:"version"`
 		Channel          string `json:"channel"`
 		ArtifactVerified bool   `json:"artifact_verified"`

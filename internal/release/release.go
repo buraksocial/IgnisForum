@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"regexp"
@@ -17,6 +18,10 @@ import (
 
 const MaxMetadata = 16 << 10
 const MaxArtifact = 256 << 20
+
+// ErrNoUpdate means the metadata passed every trust and policy check, but its
+// version is at or below the installed version. It is not a candidate.
+var ErrNoUpdate = errors.New("release is not newer than installed version")
 
 type Metadata struct {
 	Schema   int       `json:"schema"`
@@ -86,7 +91,7 @@ func Verify(raw, signature []byte, key ed25519.PublicKey, p Policy) (Metadata, e
 			break
 		}
 	}
-	return m, fmt.Errorf("release is not newer than installed version")
+	return m, ErrNoUpdate
 }
 
 func validHash(hash string) bool {

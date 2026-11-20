@@ -1,0 +1,27 @@
+[Unit]
+Description=Check signed IgnisForum %i release metadata (no installation)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+DynamicUser=yes
+EnvironmentFile=/etc/ignisforum/update-%i.env
+ExecStart=/opt/ignisforum/bin/ignisforum-update-check -channel=%i -installed=${INSTALLED_VERSION} -public-key=${RELEASE_PUBLIC_KEY} -feed=${FEED_URL}
+TimeoutStartSec=20s
+UMask=0077
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+InaccessiblePaths=-/var/lib/ignisforum
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+CapabilityBoundingSet=

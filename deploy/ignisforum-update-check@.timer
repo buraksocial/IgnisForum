@@ -1,0 +1,11 @@
+[Unit]
+Description=Check IgnisForum %i release metadata daily
+
+[Timer]
+OnCalendar=daily
+RandomizedDelaySec=1h
+Persistent=yes
+Unit=ignisforum-update-check@%i.service
+
+[Install]
+WantedBy=timers.target

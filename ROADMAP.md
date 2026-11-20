@@ -52,6 +52,8 @@ The old forum and its MariaDB data remain authoritative until cutover acceptance
 - [ ] Add a complete interface message catalog (including server errors and
   plugins), locale selection, localized dates/plurals and RTL coverage; verify
   at least 20 production-ready translations end to end.
+- [x] Add opt-in scheduled checks of signed stable and security metadata,
+  without downloading or installing releases.
 - [ ] Publish signed stable and security release metadata; build an opt-in updater
   with staging verification, backup and rollback, separate from the web process.
 - [x] Allow administrators to enable/disable individual WASM plugins without
