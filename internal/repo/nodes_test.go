@@ -35,6 +35,23 @@ func TestNodeMoveAndRebuild(t *testing.T) {
 	}
 }
 
+func TestMoveNodeEnforcesHierarchy(t *testing.T) {
+	s, _ := openTestStore(t)
+	r := New(s)
+	a, _ := r.Nodes.CreateCategory("A", "a", "")
+	b, _ := r.Nodes.CreateCategory("B", "b", "")
+	f, _ := r.Nodes.CreateForum(a.ID, "Forum", "forum", "", false)
+	if err := r.Nodes.MoveNode(a.ID, b.ID); err == nil {
+		t.Fatal("category nested below category")
+	}
+	if err := r.Nodes.MoveNode(f.ID, f.ID); err == nil {
+		t.Fatal("forum nested below forum")
+	}
+	if err := r.Nodes.MoveNode(f.ID, b.ID); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // TestThreadSortsAndViews covers the List sort keys and IncrementViews.
 func TestThreadSortsAndViews(t *testing.T) {
 	s, _ := openTestStore(t)

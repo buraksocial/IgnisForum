@@ -2,12 +2,16 @@ package web
 
 import (
 	"net/http"
+	"regexp"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/buraksocial/IgnisForum/internal/domain"
 	"github.com/buraksocial/IgnisForum/internal/perm"
 )
+
+var adminSlugPattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
 
 var adminGroups = []adminGroupView{
 	{ID: perm.GroupGuest, Name: "Misafir"},
@@ -43,6 +47,145 @@ func (srv *Server) adminHome(w http.ResponseWriter, r *http.Request) {
 	}
 	d := srv.base(r, "Yönetim", "admin", nil)
 	srv.render(w, "admin", d)
+}
+
+func (srv *Server) adminNodes(w http.ResponseWriter, r *http.Request) {
+	if srv.requireAdmin(w, r) == nil {
+		return
+	}
+	d := srv.base(r, "Forum yönetimi", "admin", []Crumb{{URL: "/admin", Title: "Yönetim"}})
+	tree, err := srv.Repos.Nodes.LoadTree()
+	if err != nil {
+		http.Error(w, "forum tree unavailable", http.StatusInternalServerError)
+		return
+	}
+	for _, cat := range tree.Categories {
+		if node, ok := srv.Repos.Nodes.Get(cat.NodeID); ok {
+			d.AdminNodeRows = append(d.AdminNodeRows, nodeToAdminRow(node))
+		}
+		d.AdminNodes = append(d.AdminNodes, adminNodeOption{ID: cat.NodeID, Title: cat.Title, Type: "Kategori"})
+		for _, forum := range cat.Forums {
+			if node, ok := srv.Repos.Nodes.Get(forum.NodeID); ok {
+				d.AdminNodeRows = append(d.AdminNodeRows, nodeToAdminRow(node))
+			}
+		}
+	}
+	srv.render(w, "admin_nodes", d)
+}
+
+func nodeToAdminRow(node *domain.Node) adminNodeRow {
+	typeName := "Forum"
+	if node.Type == domain.TypeCategory {
+		typeName = "Kategori"
+	}
+	return adminNodeRow{ID: node.ID, Title: node.Title, Slug: node.Slug, Description: node.Description,
+		Type: typeName, ParentID: node.ParentID, AllowPolls: node.Options.AllowPolls,
+		ThreadCount: node.ThreadCount, PostCount: node.PostCount}
+}
+
+func (srv *Server) saveAdminNode(w http.ResponseWriter, r *http.Request) {
+	me := srv.requireAdmin(w, r)
+	if me == nil {
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "invalid form", http.StatusBadRequest)
+		return
+	}
+	if !csrfOK(r, r.FormValue("csrf")) {
+		srv.deny(w, r, "CSRF doğrulaması başarısız.")
+		return
+	}
+	if ok, retry := srv.D.RL.Allow("admin-nodes", strconv.FormatUint(me.ID, 10), 30, time.Minute); !ok {
+		srv.tooMany(w, r, retry)
+		return
+	}
+	title, slug := strings.TrimSpace(r.FormValue("title")), strings.Trim(strings.ToLower(strings.TrimSpace(r.FormValue("slug"))), "-")
+	description := strings.TrimSpace(r.FormValue("description"))
+	action := r.FormValue("action")
+	switch action {
+	case "create-category":
+		if !validNodeForm(title, slug, description) {
+			http.Error(w, "Başlık, slug veya açıklama geçersiz.", http.StatusBadRequest)
+			return
+		}
+		_, err := srv.Repos.Nodes.CreateCategory(title, slug, description)
+		if err != nil {
+			http.Error(w, "Kategori oluşturulamadı.", http.StatusInternalServerError)
+			return
+		}
+	case "create-forum":
+		if !validNodeForm(title, slug, description) {
+			http.Error(w, "Başlık, slug veya açıklama geçersiz.", http.StatusBadRequest)
+			return
+		}
+		parent, err := strconv.ParseUint(r.FormValue("parent_id"), 10, 64)
+		parentNode, ok := srv.Repos.Nodes.Get(parent)
+		if err != nil || !ok || parentNode.Type != domain.TypeCategory {
+			http.Error(w, "Üst kategori geçersiz.", http.StatusBadRequest)
+			return
+		}
+		_, err = srv.Repos.Nodes.CreateForum(parent, title, slug, description, r.FormValue("allow_polls") == "1")
+		if err != nil {
+			http.Error(w, "Forum oluşturulamadı.", http.StatusInternalServerError)
+			return
+		}
+	case "update":
+		if !validNodeForm(title, slug, description) {
+			http.Error(w, "Başlık, slug veya açıklama geçersiz.", http.StatusBadRequest)
+			return
+		}
+		id, err := strconv.ParseUint(r.FormValue("id"), 10, 64)
+		if err != nil {
+			http.Error(w, "Düğüm kimliği geçersiz.", http.StatusBadRequest)
+			return
+		}
+		node, ok := srv.Repos.Nodes.Get(id)
+		if !ok {
+			http.NotFound(w, r)
+			return
+		}
+		options := node.Options
+		options.AllowPolls = node.Type == domain.TypeForum && r.FormValue("allow_polls") == "1"
+		parent := uint64(0)
+		if node.Type == domain.TypeForum {
+			parent, err = strconv.ParseUint(r.FormValue("parent_id"), 10, 64)
+			parentNode, found := srv.Repos.Nodes.Get(parent)
+			if err != nil || !found || parentNode.Type != domain.TypeCategory {
+				http.Error(w, "Üst kategori geçersiz.", http.StatusBadRequest)
+				return
+			}
+		}
+		if err := srv.Repos.Nodes.Update(id, title, slug, description, options); err != nil {
+			http.Error(w, "Düğüm güncellenemedi.", http.StatusInternalServerError)
+			return
+		}
+		if node.ParentID != parent {
+			if err := srv.Repos.Nodes.MoveNode(id, parent); err != nil {
+				http.Error(w, "Düğüm taşınamadı.", http.StatusInternalServerError)
+				return
+			}
+			srv.D.Perms.Invalidate()
+		}
+	case "delete-empty":
+		id, err := strconv.ParseUint(r.FormValue("id"), 10, 64)
+		if err != nil {
+			http.Error(w, "Düğüm kimliği geçersiz.", http.StatusBadRequest)
+			return
+		}
+		if err := srv.Repos.Nodes.DeleteEmpty(id); err != nil {
+			http.Error(w, "Yalnızca boş forum veya kategoriler silinebilir.", http.StatusConflict)
+			return
+		}
+	default:
+		http.Error(w, "İşlem geçersiz.", http.StatusBadRequest)
+		return
+	}
+	http.Redirect(w, r, "/admin/nodes", http.StatusSeeOther)
+}
+
+func validNodeForm(title, slug, description string) bool {
+	return len(title) >= 2 && len(title) <= 100 && len(description) <= 1000 && adminSlugPattern.MatchString(slug) && len(slug) <= 100
 }
 
 func (srv *Server) adminPermissions(w http.ResponseWriter, r *http.Request) {

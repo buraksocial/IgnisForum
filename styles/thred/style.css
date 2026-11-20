@@ -176,6 +176,17 @@ label { display: block; font-size: 13px; font-weight: 600; margin: 12px 0 4px; }
 .theme-menu-items a { display: block; padding: 6px 10px; border-radius: 5px; }
 .theme-menu-items a:hover { background: var(--color-bg-tone); text-decoration: none; }
 .plugin-notice { margin: 8px 0; padding: 12px 16px; border-left: 3px solid var(--color-brand); border-radius: 4px; background: var(--color-bg-tone); }
+.admin-node-form, .admin-node-edit { display: grid; gap: 12px; margin: 12px 0; }
+.admin-node-form label, .admin-node-fields label { display: grid; gap: 5px; font-size: 13px; font-weight: 700; }
+.admin-node-form input, .admin-node-form textarea, .admin-node-form select, .admin-node-fields input, .admin-node-fields textarea, .admin-node-fields select { width: 100%; border: 1px solid var(--color-brd); border-radius: 6px; padding: 8px; color: var(--color-typ); background: var(--color-bg); font: inherit; }
+.admin-node-heading, .admin-node-actions { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.admin-node-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 12px; }
+.admin-node-fields .wide { grid-column: 1 / -1; }
+.admin-node-form .check-label, .admin-node-fields .check-label { display: flex; align-items: center; gap: 8px; }
+.admin-node-form .check-label input, .admin-node-fields .check-label input { width: auto; }
+.admin-node-delete { display: flex; justify-content: flex-end; margin: -6px 0 18px; }
+.admin-section-title { margin-top: 24px; }
+.btn-danger { color: #b42318; border: 1px solid #b4231840; background: transparent; }
 
 .reply-box { border: 1px solid var(--color-brd); border-radius: var(--radius-theme); padding: 16px; margin-top: 24px; background: var(--color-bg); }
 

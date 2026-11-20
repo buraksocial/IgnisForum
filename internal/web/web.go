@@ -107,6 +107,8 @@ func buildRouter(srv *Server) chi.Router {
 	rr.Post("/register", srv.registerSubmit)
 	rr.Post("/logout", srv.logout)
 	rr.Get("/admin", srv.adminHome)
+	rr.Get("/admin/nodes", srv.adminNodes)
+	rr.Post("/admin/nodes", srv.saveAdminNode)
 	rr.Get("/admin/permissions", srv.adminPermissions)
 	rr.Post("/admin/permissions", srv.saveAdminPermissions)
 
@@ -216,12 +218,21 @@ type pageData struct {
 	AdminScope          string
 	AdminGroups         []adminGroupView
 	AdminPermissionRows []adminPermissionRow
+	AdminNodeRows       []adminNodeRow
 }
 
 type adminNodeOption struct {
 	ID    uint64
 	Title string
 	Type  string
+}
+type adminNodeRow struct {
+	ID                       uint64
+	Title, Slug, Description string
+	Type                     string
+	ParentID                 uint64
+	AllowPolls               bool
+	ThreadCount, PostCount   int
 }
 type adminGroupView struct {
 	ID   uint64

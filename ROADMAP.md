@@ -10,8 +10,10 @@ The old forum and its MariaDB data remain authoritative until cutover acceptance
 
 - [x] Harden the standalone service: loopback-only bind, unprivileged systemd unit,
   HTTPS-only cookies, explicit timeouts, and remove the published demo password.
-- [ ] Complete forum administration: node editor, user/group management, editable
+- [ ] Complete forum administration: user/group management, editable
   global and node permissions, roles, moderation queue, reports, and audit trail.
+- [x] Add protected node/category/forum creation, editing, reparenting, and
+  empty-only deletion with hierarchy and content-preservation checks.
 - [ ] Complete core community workflows: edit/delete/quote, thread prefixes and
   tags, polls, attachments, profiles, notifications, private messages, and follows.
 - [ ] Add safe theme support: theme manifests, parent/child themes, per-user

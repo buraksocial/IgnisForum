@@ -426,6 +426,109 @@ func TestAdminPermissionMatrixIsProtectedAndWritable(t *testing.T) {
 	}
 }
 
+func TestAdminNodeManagementCreatesMovesEditsAndProtectsContent(t *testing.T) {
+	ts, s, repos, authSvc, _ := newTestServer(t)
+	guest := jarNoRedirect()
+	resp, err := guest.Get(ts.URL + "/admin/nodes")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusFound {
+		t.Fatalf("anonymous node admin = %d", resp.StatusCode)
+	}
+	admin := loginAsAdmin(t, ts, s, authSvc)
+	code, body, _ := getBody(t, admin, ts.URL+"/admin/nodes")
+	if code != http.StatusOK || !strings.Contains(body, "Forum yapısı") {
+		t.Fatalf("node admin page = %d", code)
+	}
+	csrf := mustFindCSRF(t, admin, ts.URL+"/admin/nodes")
+	post := func(values url.Values) *http.Response {
+		values.Set("csrf", csrf)
+		return formPost(t, admin, ts.URL+"/admin/nodes", values)
+	}
+	resp = post(url.Values{"action": {"create-category"}, "title": {"Second Category"}, "slug": {"second-category"}, "description": {"A category"}})
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("create category = %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+	tree, _ := repos.Nodes.LoadTree()
+	var newCategory uint64
+	for _, category := range tree.Categories {
+		if category.Title == "Second Category" {
+			newCategory = category.NodeID
+		}
+	}
+	if newCategory == 0 {
+		t.Fatal("created category missing from tree")
+	}
+	resp = post(url.Values{"action": {"create-category"}, "title": {"Third Category"}, "slug": {"third-category"}})
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("create second category = %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+	tree, _ = repos.Nodes.LoadTree()
+	var targetCategory uint64
+	for _, category := range tree.Categories {
+		if category.Title == "Third Category" {
+			targetCategory = category.NodeID
+		}
+	}
+	if targetCategory == 0 {
+		t.Fatal("second category missing")
+	}
+	resp = post(url.Values{"action": {"create-forum"}, "parent_id": {itoa(newCategory)}, "title": {"Empty Forum"}, "slug": {"empty-forum"}, "description": {""}, "allow_polls": {"1"}})
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("create forum = %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+	tree, _ = repos.Nodes.LoadTree()
+	var emptyForum uint64
+	for _, category := range tree.Categories {
+		if category.NodeID == newCategory && len(category.Forums) == 1 {
+			emptyForum = category.Forums[0].NodeID
+		}
+	}
+	if emptyForum == 0 {
+		t.Fatal("created forum missing from tree")
+	}
+	resp = post(url.Values{"action": {"update"}, "id": {itoa(emptyForum)}, "parent_id": {itoa(targetCategory)}, "title": {"Edited Forum"}, "slug": {"edited-forum"}, "description": {"Updated"}, "allow_polls": {"0"}})
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("update forum = %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+	if forum, ok := repos.Nodes.Get(emptyForum); !ok || forum.Title != "Edited Forum" || forum.Description != "Updated" || forum.Options.AllowPolls || forum.ParentID != targetCategory {
+		t.Fatalf("updated node = %+v", forum)
+	}
+	resp = post(url.Values{"action": {"delete-empty"}, "id": {itoa(emptyForum)}})
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("delete empty forum = %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+	if _, ok := repos.Nodes.Get(emptyForum); ok {
+		t.Fatal("empty forum still exists after delete")
+	}
+	// Existing seeded node has live content and must never be cascade-deleted.
+	var occupied uint64
+	tree, _ = repos.Nodes.LoadTree()
+	for _, category := range tree.Categories {
+		for _, forum := range category.Forums {
+			n, exists := repos.Nodes.Get(forum.NodeID)
+			if exists && n.ThreadCount > 0 {
+				occupied = n.ID
+			}
+		}
+	}
+	if occupied == 0 {
+		t.Fatal("expected a populated fixture forum")
+	}
+	resp = post(url.Values{"action": {"delete-empty"}, "id": {itoa(occupied)}})
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("delete populated forum = %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
 // TestWrongCredentials covers the unified login failure + rate-limit lockout.
 func TestWrongCredentials(t *testing.T) {
 	ts, _, _, _, _ := newTestServer(t)

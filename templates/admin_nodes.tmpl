@@ -1,0 +1,41 @@
+{{define "admin_nodes"}}
+{{template "header" .}}
+<div class="toolbar"><h1>Forum yapısı</h1><a class="btn" href="/admin">Yönetime dön</a></div>
+<div class="admin-grid">
+  <form class="panel admin-node-form" method="post" action="/admin/nodes">
+    <h2>Kategori oluştur</h2><input type="hidden" name="csrf" value="{{.CSRF}}"><input type="hidden" name="action" value="create-category">
+    <label>Başlık<input name="title" minlength="2" maxlength="100" required></label>
+    <label>Slug<input name="slug" pattern="[a-z0-9]+(-[a-z0-9]+)*" maxlength="100" required></label>
+    <label>Açıklama<textarea name="description" maxlength="1000" rows="2"></textarea></label>
+    <button class="btn btn-primary">Kategori ekle</button>
+  </form>
+  <form class="panel admin-node-form" method="post" action="/admin/nodes">
+    <h2>Forum oluştur</h2><input type="hidden" name="csrf" value="{{.CSRF}}"><input type="hidden" name="action" value="create-forum">
+    <label>Üst kategori<select name="parent_id" required>{{range .AdminNodes}}<option value="{{.ID}}">{{.Title}}</option>{{end}}</select></label>
+    <label>Başlık<input name="title" minlength="2" maxlength="100" required></label>
+    <label>Slug<input name="slug" pattern="[a-z0-9]+(-[a-z0-9]+)*" maxlength="100" required></label>
+    <label>Açıklama<textarea name="description" maxlength="1000" rows="2"></textarea></label>
+    <label class="check-label"><input type="checkbox" name="allow_polls" value="1"> Anketlere izin ver</label>
+    <button class="btn btn-primary">Forum ekle</button>
+  </form>
+</div>
+<h2 class="admin-section-title">Mevcut düğümler</h2>
+{{range .AdminNodeRows}}
+<form class="panel admin-node-edit" method="post" action="/admin/nodes">
+  <input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="action" value="update"><input type="hidden" name="id" value="{{.ID}}">
+  <div class="admin-node-heading"><strong>{{.Type}} #{{.ID}}</strong>{{if eq .Type "Forum"}}<span class="muted">{{.ThreadCount}} konu · {{.PostCount}} mesaj</span>{{end}}</div>
+  <div class="admin-node-fields">
+    <label>Başlık<input name="title" value="{{.Title}}" minlength="2" maxlength="100" required></label>
+    <label>Slug<input name="slug" value="{{.Slug}}" pattern="[a-z0-9]+(-[a-z0-9]+)*" maxlength="100" required></label>
+    <label class="wide">Açıklama<textarea name="description" maxlength="1000" rows="2">{{.Description}}</textarea></label>
+    {{if eq .Type "Forum"}}<label>Üst kategori<select name="parent_id">{{range $.AdminNodes}}<option value="{{.ID}}" {{if eq .ID $.ParentID}}selected{{end}}>{{.Title}}</option>{{end}}</select></label><label class="check-label"><input type="checkbox" name="allow_polls" value="1" {{if .AllowPolls}}checked{{end}}> Anketlere izin ver</label>{{end}}
+  </div>
+  <div class="admin-node-actions"><button class="btn btn-primary">Kaydet</button></div>
+</form>
+<form class="admin-node-delete" method="post" action="/admin/nodes" onsubmit="return confirm('Yalnızca boş düğüm silinir. Devam edilsin mi?')">
+  <input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="action" value="delete-empty"><input type="hidden" name="id" value="{{.ID}}">
+  <button class="btn btn-danger">Boşsa sil</button>
+</form>
+{{else}}<div class="empty">Henüz kategori veya forum yok.</div>{{end}}
+{{template "footer" .}}
+{{end}}

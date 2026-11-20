@@ -138,6 +138,18 @@ func (n *NodeRepo) MoveNode(id, newParent uint64) error {
 	if !ok {
 		return fmt.Errorf("node %d not found", id)
 	}
+	if node.Type == domain.TypeCategory && newParent != 0 {
+		return fmt.Errorf("category %d must remain at the root", id)
+	}
+	if node.Type == domain.TypeForum {
+		parent, exists := n.Get(newParent)
+		if !exists || parent.Type != domain.TypeCategory {
+			return fmt.Errorf("forum %d requires a category parent", id)
+		}
+	}
+	if node.ParentID == newParent {
+		return nil
+	}
 	oldParent := node.ParentID
 	node.ParentID = newParent
 	node.Position = s.ZCard(childrenOf(newParent))
@@ -147,6 +159,35 @@ func (n *NodeRepo) MoveNode(id, newParent uint64) error {
 	}
 	s.ZRem(childrenOf(oldParent), id)
 	s.ZAddIdx(childrenOf(newParent), float64(node.Position), id)
+	return n.buildTree()
+}
+
+// Update persists mutable presentation fields for a node. The type and
+// hierarchy are intentionally handled separately by MoveNode.
+func (n *NodeRepo) Update(id uint64, title, slug, description string, options domain.NodeOptions) error {
+	node, ok := n.Get(id)
+	if !ok {
+		return fmt.Errorf("node %d not found", id)
+	}
+	node.Title, node.Slug, node.Description, node.Options = title, slug, description, options
+	if err := n.r.S.PutJSON(keyNode(id), node); err != nil {
+		return err
+	}
+	return n.buildTree()
+}
+
+// DeleteEmpty removes an empty node without cascading into content. Nodes with
+// threads, posts, or children must first be explicitly migrated elsewhere.
+func (n *NodeRepo) DeleteEmpty(id uint64) error {
+	node, ok := n.Get(id)
+	if !ok {
+		return fmt.Errorf("node %d not found", id)
+	}
+	if n.r.S.ZCard(childrenOf(id)) != 0 || n.r.S.ZCard(NodeThreadsKey(id)) != 0 || node.ThreadCount != 0 || node.PostCount != 0 {
+		return fmt.Errorf("node %d is not empty", id)
+	}
+	n.r.S.Delete(keyNode(id))
+	n.r.S.ZRem(childrenOf(node.ParentID), id)
 	return n.buildTree()
 }
 
