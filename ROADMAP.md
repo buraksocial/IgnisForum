@@ -67,6 +67,9 @@ The old forum and its MariaDB data remain authoritative until cutover acceptance
 - [x] Add a separate operator-invoked HTTPS artifact staging tool with signature,
   channel/platform/version/expiry, streamed size/hash verification, private
   non-executable quarantine and no installation or service restart.
+- [x] Add a promotion library with immediate re-verification, atomic binary
+  replacement and health-failure binary rollback; keep service orchestration,
+  backups and automatic invocation disabled.
 - [ ] Publish signed stable and security release metadata; build an opt-in updater
   with staging verification, backup and rollback, separate from the web process.
 - [x] Allow administrators to enable/disable individual WASM plugins without

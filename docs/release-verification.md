@@ -122,3 +122,23 @@ gates, isolated backup/restore and migration rehearsal, authenticated health
 tests, atomic promotion and rollback remain required before automatic
 installation can be enabled. No staging timer or live installation is enabled
 by this change.
+
+## Promotion library (not enabled)
+
+`internal/release.Promote` is the next explicit gate for an operator-owned
+updater. It re-verifies the staged metadata, detached signature, completion
+receipt and artifact hash immediately before promotion. The target must be an
+existing regular file; the target and previous-binary paths must share a
+private real directory, and the previous path must not already exist. It copies
+the artifact to a private temporary file, synchronizes it, sets executable
+permissions, renames the current binary to the previous path, and atomically
+renames the new binary into place.
+
+The caller supplies a health callback. If it fails, the library moves the new
+binary to a `.failed` quarantine and restores the previous binary before
+returning the error. It never starts/stops systemd, runs a shell command,
+changes the database, or creates a backup. A successful return therefore does
+not mean an update is safe to promote: the caller must hold the service/data
+write freeze, create and verify an offline backup, run migration compatibility
+checks and authenticated health/smoke tests, and log the result. No CLI or
+systemd unit invokes this library yet; automatic installation remains disabled.
