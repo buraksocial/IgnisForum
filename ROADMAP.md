@@ -15,7 +15,9 @@ The old forum and its MariaDB data remain authoritative until cutover acceptance
 - [x] Add protected node/category/forum creation, editing, reparenting, and
   empty-only deletion with hierarchy and content-preservation checks.
 - [ ] Complete core community workflows: thread prefixes and
-  tags, polls, attachments, profiles, notifications, and private messages.
+  tags, polls, attachments, notifications, and private messages.
+- [x] Add public member profiles with recent visible posts and self-service
+  title/signature editing protected by CSRF, ownership checks, and rate limits.
 - [x] Add soft deletion for replies with author/admin authorization, CSRF and
   rate limits, first-post protection, index cleanup, and rebuildable counters.
 - [x] Add same-thread post quoting that safely prefills the reply composer and

@@ -154,6 +154,13 @@ func (p *PostRepo) List(threadID uint64, offset, n int) []uint64 {
 	return p.r.S.ZOldest(ThreadPostsKey(threadID), offset, n)
 }
 
+// RecentByUser returns the newest indexed posts for a member, newest first.
+func (p *PostRepo) RecentByUser(userID uint64, n int) []uint64 {
+	return p.r.S.ZTop(userPostsIdx(userID), n)
+}
+
+func (p *PostRepo) CountByUser(userID uint64) int { return p.r.S.ZCard(userPostsIdx(userID)) }
+
 // indexPost adds a post to the thread, latest-posts and user-posts indexes.
 func (p *PostRepo) indexPost(post *domain.Post) {
 	s := p.r.S

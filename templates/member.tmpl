@@ -1,0 +1,34 @@
+{{define "member"}}
+{{template "header" .}}
+<section class="panel">
+  <h1>{{.Profile.Username}}</h1>
+  {{if .Profile.Title}}<p>{{.Profile.Title}}</p>{{end}}
+  <dl>
+    <dt>Üyelik tarihi</dt><dd>{{ago .Profile.JoinedAt}}</dd>
+    <dt>Mesaj</dt><dd>{{.ProfilePostCount}}</dd>
+    <dt>Beğeni puanı</dt><dd>{{.Profile.LikeScore}}</dd>
+  </dl>
+  {{if .Profile.Signature}}<p class="muted">{{.Profile.Signature}}</p>{{end}}
+</section>
+{{if and .Me (eq .Me.ID .Profile.ID)}}
+<section class="panel">
+  <h2>Profili düzenle</h2>
+  <form method="post" action="/members/{{.Profile.ID}}/profile">
+    <input type="hidden" name="csrf" value="{{.CSRF}}">
+    <label>Üye başlığı<input name="title" maxlength="60" value="{{.Profile.Title}}"></label>
+    <label>İmza<textarea name="signature" maxlength="500" rows="3">{{.Profile.Signature}}</textarea></label>
+    <button class="btn btn-primary" type="submit">Kaydet</button>
+  </form>
+</section>
+{{end}}
+<section class="panel">
+  <h2>Son mesajlar</h2>
+  {{if .ProfilePosts}}
+    {{range .ProfilePosts}}<article class="profile-post">
+      <h3><a href="/t/{{.ThreadID}}">{{.ThreadTitle}}</a></h3>
+      <time>{{ago .Date}}</time><div class="post-body">{{.Message}}</div>
+    </article>{{end}}
+  {{else}}<p class="muted">Görüntülenebilir mesaj yok.</p>{{end}}
+</section>
+{{template "footer" .}}
+{{end}}

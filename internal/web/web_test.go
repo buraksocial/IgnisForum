@@ -233,6 +233,41 @@ func TestMemberCanSoftDeleteOwnReplyButNotFirstPost(t *testing.T) {
 	}
 }
 
+func TestMemberProfileAndSelfEdit(t *testing.T) {
+	ts, _, _, authSvc, _ := newTestServer(t)
+	member := register(t, ts, "profilemember")
+	var userID uint64
+	baseURL, _ := url.Parse(ts.URL)
+	for _, cookie := range member.Jar.Cookies(baseURL) {
+		if cookie.Name == "ignis_sid" {
+			if sess := authSvc.GetSession(cookie.Value); sess != nil {
+				userID = sess.UserID
+			}
+		}
+	}
+	if userID == 0 {
+		t.Fatal("registered session missing")
+	}
+	profileURL := ts.URL + "/members/" + itoa(userID)
+	_, body, _ := getBody(t, member, profileURL)
+	if !strings.Contains(body, "profilemember") || !strings.Contains(body, "Profili düzenle") {
+		t.Fatalf("member profile missing expected content: %s", body)
+	}
+	csrf := mustFindCSRF(t, member, profileURL)
+	resp := formPost(t, member, profileURL+"/profile", url.Values{"csrf": {csrf}, "title": {"Forum meraklısı"}, "signature": {"Selam [b]forum[/b]"}})
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("profile save status=%d", resp.StatusCode)
+	}
+	_, body, _ = getBody(t, member, profileURL)
+	if !strings.Contains(body, "Forum meraklısı") || !strings.Contains(body, "Selam [b]forum[/b]") {
+		t.Fatalf("saved profile fields missing: %s", body)
+	}
+	resp = formPost(t, member, ts.URL+"/members/1/profile", url.Values{"csrf": {csrf}, "title": {"unauthorized"}})
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("editing another profile status=%d", resp.StatusCode)
+	}
+}
+
 // jarNoRedirect: keeps cookies (so the session sticks) but reports the first
 // redirect response instead of following it — for asserting 303/302 flows.
 func jarNoRedirect() *http.Client {

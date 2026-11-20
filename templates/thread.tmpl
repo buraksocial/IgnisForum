@@ -18,7 +18,7 @@
   <div class="post-head">
     <div class="post-avatar">{{if .AvatarURL}}<img src="{{.AvatarURL}}" alt="{{.Author}}" loading="lazy">{{else}}{{first .Author}}{{end}}</div>
     <div class="post-who">
-      <span class="post-username">{{.Author}}</span>
+      <a class="post-username" href="/members/{{.UserID}}">{{.Author}}</a>
       <div class="post-rank">{{.Rank}}</div>
     </div>
     <div class="post-num">#{{.Number}} · {{ago .Date}}</div>
@@ -33,12 +33,6 @@
         <input type="hidden" name="csrf" value="{{$page.CSRF}}">
         <textarea name="message" rows="5" maxlength="20000" required>{{.Raw}}</textarea>
         <button class="btn btn-primary" type="submit">Değişiklikleri kaydet</button>
-      </form>
-    </details>{{end}}
-    {{if .CanDelete}}<details class="post-delete"><summary>Sil</summary>
-      <form method="post" action="/t/{{$page.Thread.ID}}/post/{{.ID}}/delete">
-        <input type="hidden" name="csrf" value="{{$page.CSRF}}">
-        <button class="btn" type="submit">Bu yanıtı sil</button>
       </form>
     </details>{{end}}
     {{if .CanDelete}}<details class="post-delete"><summary>Sil</summary>

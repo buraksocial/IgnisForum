@@ -216,6 +216,16 @@ func (u *UserRepo) SetTheme(id uint64, theme string) error {
 	return u.s.s.PutJSON(keyUser(id), usr)
 }
 
+// UpdateProfile stores the member-editable public fields only.
+func (u *UserRepo) UpdateProfile(id uint64, title, signature string) error {
+	usr, ok := u.GetByID(id)
+	if !ok {
+		return ErrNotFound
+	}
+	usr.Title, usr.Signature = title, signature
+	return u.s.s.PutJSON(keyUser(id), usr)
+}
+
 // Login verifies credentials and mints a session. Rate limiting is the
 // caller's responsibility around this (web layer checks both buckets); this
 // only clears the buckets on success.

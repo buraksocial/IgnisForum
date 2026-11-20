@@ -98,6 +98,8 @@ func buildRouter(srv *Server) chi.Router {
 	rr.Get("/", srv.home)
 	rr.Get("/latest", srv.latest)
 	rr.Get("/search", srv.search)
+	rr.Get("/members/{userID}", srv.memberProfile)
+	rr.Post("/members/{userID}/profile", srv.saveMemberProfile)
 	rr.Get("/f/{nodeID}", srv.forum)
 	rr.Get("/f/{nodeID}/new", srv.newThreadForm)
 	rr.Post("/f/{nodeID}/new", srv.createThread)
@@ -233,6 +235,16 @@ type pageData struct {
 	AdminPermissionRows []adminPermissionRow
 	AdminNodeRows       []adminNodeRow
 	Reports             []adminReportRow
+	Profile             *domain.User
+	ProfilePosts        []profilePostRow
+	ProfilePostCount    int
+}
+
+type profilePostRow struct {
+	ThreadID    uint64
+	ThreadTitle string
+	Date        time.Time
+	Message     template.HTML
 }
 
 type adminNodeOption struct {
@@ -1037,6 +1049,64 @@ func (srv *Server) createThread(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.Redirect(w, r, "/t/"+itoa(th.ID), http.StatusSeeOther)
+}
+
+func (srv *Server) memberProfile(w http.ResponseWriter, r *http.Request) {
+	userID := parseID(chi.URLParam(r, "userID"))
+	user, ok := srv.D.Users.GetByID(userID)
+	if !ok || user.State != 0 {
+		srv.notFound(w, r)
+		return
+	}
+	d := srv.base(r, user.Username+" profili", "", []Crumb{{Title: "Üyeler"}, {Title: user.Username}})
+	d.Profile = user
+	d.ProfilePostCount = srv.Repos.Posts.CountByUser(userID)
+	for _, id := range srv.Repos.Posts.RecentByUser(userID, 10) {
+		post, found := srv.Repos.Posts.Get(id)
+		if !found || post.State != 0 {
+			continue
+		}
+		thread, found := srv.Repos.Threads.Get(post.ThreadID)
+		if !found || thread.Status == domain.ThreadDeleted || !srv.can(r, d.Me, perm.ScopeNode, thread.NodeID, perm.KeyForumView) {
+			continue
+		}
+		d.ProfilePosts = append(d.ProfilePosts, profilePostRow{ThreadID: thread.ID, ThreadTitle: thread.Title, Date: post.Date, Message: template.HTML(post.MessageRendered)})
+	}
+	srv.render(w, "member", d)
+}
+
+func (srv *Server) saveMemberProfile(w http.ResponseWriter, r *http.Request) {
+	me := srv.requireAuth(w, r)
+	if me == nil {
+		return
+	}
+	userID := parseID(chi.URLParam(r, "userID"))
+	if userID != me.ID {
+		srv.deny(w, r, "Yalnızca kendi profilinizi düzenleyebilirsiniz.")
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Geçersiz form.", http.StatusBadRequest)
+		return
+	}
+	if !csrfOK(r, r.FormValue("csrf")) {
+		srv.deny(w, r, "CSRF doğrulaması başarısız.")
+		return
+	}
+	title, signature := strings.TrimSpace(r.FormValue("title")), strings.TrimSpace(r.FormValue("signature"))
+	if utf8.RuneCountInString(title) > 60 || utf8.RuneCountInString(signature) > 500 {
+		http.Error(w, "Başlık en fazla 60, imza en fazla 500 karakter olabilir.", http.StatusBadRequest)
+		return
+	}
+	if allowed, retry := srv.D.RL.Allow("edit-profile", itoa(me.ID), 5, time.Minute); !allowed {
+		srv.tooMany(w, r, retry)
+		return
+	}
+	if err := srv.D.Users.UpdateProfile(me.ID, title, signature); err != nil {
+		http.Error(w, "Profil kaydedilemedi.", http.StatusInternalServerError)
+		return
+	}
+	http.Redirect(w, r, "/members/"+itoa(me.ID), http.StatusSeeOther)
 }
 
 func (srv *Server) search(w http.ResponseWriter, r *http.Request) {
