@@ -3,14 +3,14 @@
 {{$page := .}}
 <div class="toolbar">
   <h1>{{.Thread.Title}}</h1>
-  <a class="btn" href="/f/{{.Thread.NodeID}}">Foruma dön</a>
+  <a class="btn" href="/f/{{.Thread.NodeID}}">{{.Locale.Text "thread.back"}}</a>
   {{if .Me}}<form method="post" action="/t/{{.Thread.ID}}/follow" class="thread-follow-form">
     <input type="hidden" name="csrf" value="{{.CSRF}}">
-    <button class="btn{{if .Following}} btn-primary{{end}}" type="submit">{{if .Following}}Takip ediliyor · Takibi bırak{{else}}Konuyu takip et{{end}}</button>
+    <button class="btn{{if .Following}} btn-primary{{end}}" type="submit">{{if .Following}}{{.Locale.Text "thread.unfollow"}}{{else}}{{.Locale.Text "thread.follow"}}{{end}}</button>
   </form>{{end}}
 </div>
 <p class="muted" style="font-size:13px">
-  {{.Thread.PostCount}} mesaj · {{.Thread.ViewCount}} görüntülenme
+  {{.Locale.Text "thread.counts" (.Locale.Count "count.posts" .Thread.PostCount) (.Locale.Count "count.views" .Thread.ViewCount)}}
 </p>
 {{if .Tags}}<div class="tag-list">{{range .Tags}}<a class="tag" href="/tags/{{.Slug}}">{{.Title}}</a>{{end}}</div>{{end}}
 {{if .Poll}}<section class="poll panel">
@@ -18,10 +18,10 @@
   {{if .Poll.CanVote}}<form method="post" action="/t/{{$.Thread.ID}}/poll/vote">
     <input type="hidden" name="csrf" value="{{$.CSRF}}">
     {{range .Poll.Options}}<label class="poll-option"><input type="{{if $.Poll.Multiple}}checkbox{{else}}radio{{end}}" name="option" value="{{.Index}}"> {{.Text}}</label>{{end}}
-    <button class="btn btn-primary" type="submit">Oy ver</button>
+    <button class="btn btn-primary" type="submit">{{.Locale.Text "poll.vote"}}</button>
   </form>{{else}}
-    {{if and $.Me .Poll.HasVoted}}<p class="muted">Oyunuz kaydedildi.</p>{{else if not $.Me}}<p><a href="/login?next=/t/{{$.Thread.ID}}">Oy vermek için giriş yapın.</a></p>{{end}}
-    {{range .Poll.Options}}<div class="poll-result">{{.Text}} <strong>{{.Votes}}</strong>{{if .Selected}} · Seçiminiz{{end}}</div>{{end}}
+    {{if and $.Me .Poll.HasVoted}}<p class="muted">{{.Locale.Text "poll.saved"}}</p>{{else if not $.Me}}<p><a href="/login?next=/t/{{$.Thread.ID}}">{{.Locale.Text "poll.login"}}</a></p>{{end}}
+    {{range .Poll.Options}}<div class="poll-result">{{.Text}} <strong>{{.Votes}}</strong>{{if .Selected}} · {{$.Locale.Text "poll.selected"}}{{end}}</div>{{end}}
   {{end}}
 </section>{{end}}
 {{range .Posts}}
@@ -33,7 +33,7 @@
       <a class="post-username" href="/members/{{.UserID}}">{{.Author}}</a>
       <div class="post-rank">{{.Rank}}</div>
     </div>
-    <div class="post-num">#{{.Number}} · {{ago .Date}}</div>
+    <div class="post-num">#{{.Number}} · {{$.Locale.Ago .Date $.Now}}</div>
   </div>
   <div class="post-body">{{.Rendered}}</div>
   {{if or .Attachment .CanAttach}}<div class="post-attachment">
@@ -52,31 +52,31 @@
   </div>{{end}}
    {{if .Media}}<ul class="post-media">{{range .Media}}<li>{{if eq .Kind "img"}}<a href="{{.Preview}}">{{$.Locale.Text "media.preview"}}</a> ({{.Host}}){{else}}<a href="{{.URL}}" rel="ugc nofollow noopener noreferrer" target="_blank">{{if eq .Kind "download"}}{{$.Locale.Text "media.download"}}{{else}}{{$.Locale.Text "media.open"}}{{end}}</a> ({{.Host}}){{end}}</li>{{end}}</ul>{{end}}
   <div class="post-foot">
-    {{if .Edited}}<span class="muted">Son düzenleme: {{.Author}} · {{ago .Date}}</span>{{end}}
-    <a href="#post-{{.ID}}" title="Kalıcı bağlantı">#{{.Number}}</a>
-    {{if $page.CanReply}}<a href="/t/{{$page.Thread.ID}}?quote={{.ID}}#reply">Alıntıla</a>{{end}}
-    {{if .CanEdit}}<details class="post-edit"><summary>Düzenle</summary>
+    {{if .Edited}}<span class="muted">{{$.Locale.Text "post.edited" .Author ($.Locale.Ago .Date $.Now)}}</span>{{end}}
+    <a href="#post-{{.ID}}" title="{{$.Locale.Text "post.permalink"}}">#{{.Number}}</a>
+    {{if $page.CanReply}}<a href="/t/{{$page.Thread.ID}}?quote={{.ID}}#reply">{{$.Locale.Text "post.quote"}}</a>{{end}}
+    {{if .CanEdit}}<details class="post-edit"><summary>{{$.Locale.Text "post.edit"}}</summary>
       <form method="post" action="/t/{{$page.Thread.ID}}/post/{{.ID}}/edit">
         <input type="hidden" name="csrf" value="{{$page.CSRF}}">
         <textarea name="message" rows="5" maxlength="20000" required>{{.Raw}}</textarea>
-        <button class="btn btn-primary" type="submit">Değişiklikleri kaydet</button>
+        <button class="btn btn-primary" type="submit">{{$.Locale.Text "post.save"}}</button>
       </form>
     </details>{{end}}
-    {{if .CanDelete}}<details class="post-delete"><summary>Sil</summary>
+    {{if .CanDelete}}<details class="post-delete"><summary>{{$.Locale.Text "post.delete"}}</summary>
       <form method="post" action="/t/{{$page.Thread.ID}}/post/{{.ID}}/delete">
         <input type="hidden" name="csrf" value="{{$page.CSRF}}">
-        <button class="btn" type="submit">Bu yanıtı sil</button>
+        <button class="btn" type="submit">{{$.Locale.Text "post.delete_reply"}}</button>
       </form>
     </details>{{end}}
-    {{if .CanReport}}<details class="post-report"><summary>Raporla</summary>
+    {{if .CanReport}}<details class="post-report"><summary>{{$.Locale.Text "post.report"}}</summary>
       <form method="post" action="/t/{{$page.Thread.ID}}/post/{{.ID}}/report">
         <input type="hidden" name="csrf" value="{{$page.CSRF}}">
-        <label>Gerekçe<textarea name="reason" rows="2" maxlength="500" minlength="3" required></textarea></label>
-        <button class="btn" type="submit">Moderatörlere gönder</button>
+        <label>{{$.Locale.Text "post.reason"}}<textarea name="reason" rows="2" maxlength="500" minlength="3" required></textarea></label>
+        <button class="btn" type="submit">{{$.Locale.Text "post.send_report"}}</button>
       </form>
     </details>{{end}}
   </div>
-  <div class="reaction-row" aria-label="Mesaj tepkileri">
+  <div class="reaction-row" aria-label="{{$.Locale.Text "post.reactions"}}">
     {{range .Reactions}}
       {{if $.Me}}
       <form method="post" action="/t/{{$page.Thread.ID}}/post/{{$post.ID}}/reaction" style="display:inline">
@@ -91,36 +91,36 @@
   </div>
 </article>
 {{else}}
-<div class="empty">Bu konuda henüz mesaj yok.</div>
+<div class="empty">{{.Locale.Text "thread.empty"}}</div>
 {{end}}
 {{template "pager" .}}
 {{if .CanReply}}
 <form class="reply-box" id="reply" method="post" action="/t/{{.Thread.ID}}/reply">
   <input type="hidden" name="csrf" value="{{.CSRF}}">
-  <label>Hızlı Yanıt</label>
-  <textarea name="message" rows="5" required placeholder="Cevabınızı yazın… ([b]kalın[/b], [quote]alıntı[/quote], [code]kod[/code])">{{.ReplyDraft}}</textarea>
-  <div style="margin-top:10px"><button type="submit" class="btn btn-primary">Yanıtla</button></div>
+  <label for="reply-message">{{.Locale.Text "thread.quick_reply"}}</label>
+  <textarea id="reply-message" name="message" rows="5" required placeholder="{{.Locale.Text "thread.reply_hint"}}">{{.ReplyDraft}}</textarea>
+  <div style="margin-top:10px"><button type="submit" class="btn btn-primary">{{.Locale.Text "thread.reply"}}</button></div>
 </form>
 {{else if not .Me}}
-<div class="reply-box muted">Yanıt yazmak için <a href="/login?next=/t/{{.Thread.ID}}">giriş yapın</a>.</div>
+<div class="reply-box muted"><a href="/login?next=/t/{{.Thread.ID}}">{{.Locale.Text "thread.login_reply"}}</a></div>
 {{end}}
 {{template "footer" .}}
 {{end}}
 
 {{define "newthread"}}
 {{template "header" .}}
-<h1>Yeni Konu — {{.Node.Title}}</h1>
+<h1>{{.Locale.Text "newthread.heading" .Node.Title}}</h1>
 <form method="post" action="/f/{{.Node.ID}}/new" style="max-width:720px">
   <input type="hidden" name="csrf" value="{{.CSRF}}">
-  <div class="form-row"><label>Başlık</label><input type="text" name="title" required maxlength="160" placeholder="Konu başlığı"></div>
-  <div class="form-row"><label>Mesaj</label><textarea name="message" rows="8" required placeholder="[b]kalın[/b], [url=https://example.com]bağlantı[/url], [code]kod[/code] desteklenir"></textarea></div>
-  <div class="form-row"><label>Etiketler <small>(virgülle ayırın, en fazla 5)</small></label><input type="text" name="tags" maxlength="200" placeholder="go, performans, soru"></div>
-  {{if .Node.Options.AllowPolls}}<fieldset class="form-row"><legend>Anket (isteğe bağlı)</legend>
-    <label>Soru<input type="text" name="poll_question" maxlength="150"></label>
-    <label>Seçenekler <small>(her satıra bir seçenek, 2-10)</small><textarea name="poll_options" rows="5" maxlength="1200"></textarea></label>
-    <label><input type="checkbox" name="poll_multiple" value="1"> Birden fazla seçenek işaretlenebilsin</label>
+  <div class="form-row"><label for="thread-title">{{.Locale.Text "newthread.title"}}</label><input id="thread-title" type="text" name="title" required maxlength="160" placeholder="{{.Locale.Text "newthread.title_hint"}}"></div>
+  <div class="form-row"><label for="thread-message">{{.Locale.Text "newthread.message"}}</label><textarea id="thread-message" name="message" rows="8" required placeholder="{{.Locale.Text "newthread.message_hint"}}"></textarea></div>
+  <div class="form-row"><label for="thread-tags">{{.Locale.Text "newthread.tags"}}</label><input id="thread-tags" type="text" name="tags" maxlength="200" placeholder="{{.Locale.Text "newthread.tags_hint"}}"></div>
+  {{if .Node.Options.AllowPolls}}<fieldset class="form-row"><legend>{{.Locale.Text "poll.optional"}}</legend>
+    <label>{{.Locale.Text "poll.question"}}<input type="text" name="poll_question" maxlength="150"></label>
+    <label>{{.Locale.Text "poll.options"}}<textarea name="poll_options" rows="5" maxlength="1200"></textarea></label>
+    <label><input type="checkbox" name="poll_multiple" value="1"> {{.Locale.Text "poll.multiple"}}</label>
   </fieldset>{{end}}
-  <div class="form-row"><button type="submit" class="btn btn-primary">Konuyu Aç</button> <a class="btn" href="/f/{{.Node.ID}}">İptal</a></div>
+  <div class="form-row"><button type="submit" class="btn btn-primary">{{.Locale.Text "newthread.submit"}}</button> <a class="btn" href="/f/{{.Node.ID}}">{{.Locale.Text "newthread.cancel"}}</a></div>
 </form>
 {{template "footer" .}}
 {{end}}

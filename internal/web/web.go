@@ -379,7 +379,7 @@ type reactionView struct {
 	Selected    bool
 }
 
-var reactionLabels = map[string]string{"like": "👍 Beğen", "love": "❤️ Sev", "laugh": "😂 Komik", "sad": "😢 Üzücü", "wow": "😮 Şaşırtıcı"}
+var reactionIcons = map[string]string{"like": "👍", "love": "❤️", "laugh": "😂", "sad": "😢", "wow": "😮"}
 
 // --- base helpers ---
 
@@ -785,7 +785,7 @@ func (srv *Server) thread(w http.ResponseWriter, r *http.Request) {
 		if !ok || post.State == 2 {
 			continue
 		}
-		author, avatarURL := "Misafir", ""
+		author, avatarURL := d.Locale.Text("thread.guest"), ""
 		if post.UserID != 0 {
 			user, found := userCache[post.UserID]
 			if !found && srv.D.Users != nil {
@@ -798,12 +798,12 @@ func (srv *Server) thread(w http.ResponseWriter, r *http.Request) {
 					avatarURL = "/uploads/avatars/" + user.AvatarPath
 				}
 			} else {
-				author = "kullanıcı #" + itoa(post.UserID)
+				author = d.Locale.Text("thread.user", itoa(post.UserID))
 			}
 		}
 		row := postRow{
 			ID: post.ID, Number: offset + i + 1, UserID: post.UserID,
-			Author: author, AvatarURL: avatarURL, Rank: "Üye", Date: post.Date,
+			Author: author, AvatarURL: avatarURL, Rank: d.Locale.Text("thread.member"), Date: post.Date,
 			Rendered: template.HTML(post.MessageRendered),
 			Edited:   post.EditCount > 0,
 			Raw:      post.MessageRaw,
@@ -827,7 +827,7 @@ func (srv *Server) thread(w http.ResponseWriter, r *http.Request) {
 			myReaction, _ = srv.Repos.Reactions.Get(post.ID, d.Me.ID)
 		}
 		for _, kind := range repo.ReactionTypes {
-			row.Reactions = append(row.Reactions, reactionView{Type: kind, Label: reactionLabels[kind], Count: post.ReactionCounts[kind], Selected: kind == myReaction})
+			row.Reactions = append(row.Reactions, reactionView{Type: kind, Label: reactionIcons[kind] + " " + d.Locale.Text("reaction."+kind), Count: post.ReactionCounts[kind], Selected: kind == myReaction})
 		}
 		rows = append(rows, row)
 		if row.Number > int(lastReadPostNumber) {
@@ -1140,8 +1140,9 @@ func (srv *Server) newThreadForm(w http.ResponseWriter, r *http.Request) {
 		srv.notFound(w, r)
 		return
 	}
-	d := srv.base(r, "Yeni Konu", "home", []Crumb{
-		{URL: "/f/" + itoa(nodeID), Title: node.Title}, {Title: "Yeni Konu"},
+	title := srv.uiLocale().Text("forum.new")
+	d := srv.base(r, title, "home", []Crumb{
+		{URL: "/f/" + itoa(nodeID), Title: node.Title}, {Title: title},
 	})
 	if srv.requireAuth(w, r) == nil {
 		return

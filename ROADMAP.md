@@ -51,6 +51,8 @@ The old forum and its MariaDB data remain authoritative until cutover acceptance
   search, tags, notifications, 404 and external media. Keep English preview-only.
 - [x] Extend catalogs to authentication forms and validation errors, forum
   listings and member profiles, retaining preview-only language activation.
+- [x] Catalog thread pages, thread creation, post controls, reactions and polls;
+  test English controls without translating user-authored content.
 - [ ] Add a complete interface message catalog (including server errors and
   plugins), locale selection, localized dates/plurals and RTL coverage; verify
   at least 20 production-ready translations end to end.
