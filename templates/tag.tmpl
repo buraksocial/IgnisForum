@@ -1,11 +1,11 @@
 {{define "tag"}}
 {{template "header" .}}
-<div class="toolbar"><h1>Etiket: {{(index .Tags 0).Title}}</h1><span>{{(index .Tags 0).ThreadCount}} konu</span></div>
+<div class="toolbar"><h1>{{.Locale.Text "tag.title" (index .Tags 0).Title}}</h1><span>{{.Locale.Count "count.threads" (index .Tags 0).ThreadCount}}</span></div>
 {{if .LatestThreads}}
 <div class="thread-list">{{range .LatestThreads}}<article class="thread-row">
   <h2><a href="/t/{{.ID}}">{{.Title}}</a></h2>
-  <p class="muted">{{.Author}} · {{.ReplyCount}} yanıt · {{ago .Date}}</p>
+  <p class="muted">{{.Author}} · {{$.Locale.Count "count.replies" .ReplyCount}} · {{$.Locale.Ago .Date $.Now}}</p>
 </article>{{end}}</div>
-{{else}}<p class="empty">Bu etikette görüntülenebilir konu yok.</p>{{end}}
+{{else}}<p class="empty">{{.Locale.Text "tag.empty"}}</p>{{end}}
 {{template "footer" .}}
 {{end}}

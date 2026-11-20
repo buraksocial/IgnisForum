@@ -42,5 +42,5 @@ func (srv *Server) mediaPreview(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Security-Policy", "default-src 'none'; img-src https:; style-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'")
 	w.Header().Set("Referrer-Policy", "no-referrer")
 	w.Header().Set("Cache-Control", "no-store")
-	srv.render(w, "media_preview", &pageData{PreviewURL: raw})
+	srv.render(w, "media_preview", &pageData{Locale: srv.uiLocale(), PreviewURL: raw})
 }

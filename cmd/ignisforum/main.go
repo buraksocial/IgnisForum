@@ -151,7 +151,7 @@ func main() {
 	defer plugins.Close(context.Background())
 
 	web.Version = version
-	rtr := web.New(st, r, web.Deps{Auth: authSvc, Users: users, RL: rl, Perms: perms, Secure: cfg.SecureCookies, ThemeDir: cfg.ThemeDir, AvatarDir: cfg.AvatarDir, Plugins: plugins}, assets.FS)
+	rtr := web.New(st, r, web.Deps{Auth: authSvc, Users: users, RL: rl, Perms: perms, Secure: cfg.SecureCookies, ThemeDir: cfg.ThemeDir, AvatarDir: cfg.AvatarDir, Plugins: plugins, PreviewLocale: cfg.PreviewLocale}, assets.FS)
 
 	srv := &http.Server{
 		Addr:              cfg.ListenAddr,

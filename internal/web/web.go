@@ -44,14 +44,15 @@ var Version = "dev"
 
 // Deps carries the M2 services into the web layer.
 type Deps struct {
-	Auth      *auth.Service
-	Users     *auth.UserRepo
-	RL        *auth.RateLimiter
-	Perms     *perm.Engine
-	Secure    bool // cookies carry the Secure flag (behind TLS, M6)
-	ThemeDir  string
-	AvatarDir string
-	Plugins   *plugin.Manager
+	Auth          *auth.Service
+	Users         *auth.UserRepo
+	RL            *auth.RateLimiter
+	Perms         *perm.Engine
+	Secure        bool // cookies carry the Secure flag (behind TLS, M6)
+	ThemeDir      string
+	PreviewLocale string
+	AvatarDir     string
+	Plugins       *plugin.Manager
 }
 
 // Server holds shared dependencies for all handlers.
@@ -188,6 +189,7 @@ func (srv *Server) me(r *http.Request) *domain.User {
 type Crumb struct{ URL, Title string }
 
 type pageData struct {
+	Locale     *uiLocale
 	Appearance appearanceSettings
 	Extensions []plugin.Status
 	Sidebar    sidebarView
@@ -378,6 +380,7 @@ var reactionLabels = map[string]string{"like": "👍 Beğen", "love": "❤️ Se
 // the session context (zero extra reads for guests, one Get for users).
 func (srv *Server) base(r *http.Request, title, nav string, crumbs []Crumb) *pageData {
 	d := &pageData{
+		Locale:     srv.uiLocale(),
 		Appearance: srv.appearance(),
 		Title:      title, Nav: nav, Crumbs: crumbs,
 		Rebuilding: srv.Store.Rebuilding(),
@@ -423,7 +426,8 @@ func (srv *Server) notificationsPage(w http.ResponseWriter, r *http.Request) {
 	if me == nil {
 		return
 	}
-	d := srv.base(r, "Bildirimler", "notifications", []Crumb{{Title: "Bildirimler"}})
+	title := srv.uiLocale().Text("nav.notifications")
+	d := srv.base(r, title, "notifications", []Crumb{{Title: title}})
 	for _, id := range srv.Repos.Notifications.List(me.ID, 0, 50) {
 		item, ok := srv.Repos.Notifications.Get(id)
 		if !ok {
@@ -595,7 +599,7 @@ func (srv *Server) selectTheme(w http.ResponseWriter, r *http.Request) {
 
 func (srv *Server) notFound(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotFound)
-	srv.render(w, "notfound", srv.base(r, "Bulunamadı", "", nil))
+	srv.render(w, "notfound", srv.base(r, srv.uiLocale().Text("notfound.title"), "", nil))
 }
 
 // --- content handlers ---
@@ -606,7 +610,7 @@ func (srv *Server) home(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	d := srv.base(r, "IgnisForum — Forum", "home", nil)
+	d := srv.base(r, srv.uiLocale().Text("home.title"), "home", nil)
 	d.Cats = srv.buildCats(r, d.Me, tree)
 	d.Sidebar = srv.homeSidebar(r, d)
 	d.LatestThreads = srv.threadsFromIDs(srv.Store.ZPage(repo.IdxLatestThreads, 0, 10), d.Me)
@@ -674,7 +678,7 @@ func (srv *Server) buildCats(r *http.Request, me *domain.User, tree *repo.Tree) 
 }
 
 func (srv *Server) latest(w http.ResponseWriter, r *http.Request) {
-	d := srv.base(r, "Yeni içerikler", "latest", nil)
+	d := srv.base(r, srv.uiLocale().Text("nav.latest"), "latest", nil)
 	d.LatestThreads = srv.threadsFromIDs(srv.Store.ZPage(repo.IdxLatestThreads, 0, 50), d.Me)
 	srv.render(w, "latest", d)
 }
@@ -1280,7 +1284,8 @@ func (srv *Server) tagThreads(w http.ResponseWriter, r *http.Request) {
 		srv.notFound(w, r)
 		return
 	}
-	d := srv.base(r, "Etiket: "+tag.Title, "latest", []Crumb{{Title: "Etiketler"}, {Title: tag.Title}})
+	locale := srv.uiLocale()
+	d := srv.base(r, locale.Text("tag.title", tag.Title), "latest", []Crumb{{Title: locale.Text("tag.breadcrumb")}, {Title: tag.Title}})
 	d.Tags = []tagView{{Slug: tag.Slug, Title: tag.Title, ThreadCount: tag.ThreadCount}}
 	var visibleIDs []uint64
 	for _, id := range srv.Repos.Tags.List(slug, 0, 100) {
@@ -1353,7 +1358,7 @@ func (srv *Server) saveMemberProfile(w http.ResponseWriter, r *http.Request) {
 }
 
 func (srv *Server) search(w http.ResponseWriter, r *http.Request) {
-	d := srv.base(r, "Arama", "search", nil)
+	d := srv.base(r, srv.uiLocale().Text("search.title"), "search", nil)
 	if !srv.can(r, d.Me, perm.ScopeGlobal, 0, perm.KeySearch) {
 		if d.Me == nil {
 			srv.requireAuth(w, r)

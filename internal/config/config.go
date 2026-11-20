@@ -36,6 +36,8 @@ type Config struct {
 	PluginDir string `yaml:"plugin_dir"`
 	// AvatarDir contains non-executable uploaded/imported image files.
 	AvatarDir string `yaml:"avatar_dir"`
+	// PreviewLocale enables an incomplete translation on an isolated instance only.
+	PreviewLocale string `yaml:"preview_locale"`
 }
 
 // Default returns configuration with the fixed architecture defaults applied.
@@ -68,6 +70,9 @@ func Load(path string) (Config, error) {
 	}
 
 	cfg.applyEnv()
+	if cfg.PreviewLocale != "" && cfg.PreviewLocale != "en" {
+		return cfg, fmt.Errorf("unsupported preview_locale %q", cfg.PreviewLocale)
+	}
 
 	if cfg.CacheSize <= 0 {
 		cfg.CacheSize = 64 << 20

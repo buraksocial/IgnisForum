@@ -28,6 +28,14 @@ import (
 // services and the stock permission matrix. It returns a live httptest.Server
 // so the auth flows exercise real cookies.
 func newTestServer(t *testing.T, plugins ...*plugin.Manager) (*httptest.Server, *store.Store, *repo.Repos, *auth.Service, *perm.Engine) {
+	var deps Deps
+	if len(plugins) > 0 {
+		deps.Plugins = plugins[0]
+	}
+	return newTestServerWithDeps(t, deps)
+}
+
+func newTestServerWithDeps(t *testing.T, deps Deps) (*httptest.Server, *store.Store, *repo.Repos, *auth.Service, *perm.Engine) {
 	t.Helper()
 	s, err := store.Open(store.OpenConfig{DataDir: t.TempDir(), CacheSize: 4 << 20, MemtableSize: 1 << 20})
 	if err != nil {
@@ -64,11 +72,9 @@ func newTestServer(t *testing.T, plugins ...*plugin.Manager) (*httptest.Server, 
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv := &Server{Store: s, Repos: r, D: Deps{Auth: authSvc, Users: users, RL: rl, Perms: perms},
+	deps.Auth, deps.Users, deps.RL, deps.Perms = authSvc, users, rl, perms
+	srv := &Server{Store: s, Repos: r, D: deps,
 		themes: themes, tmpl: loadTemplates(assets.FS)}
-	if len(plugins) > 0 {
-		srv.D.Plugins = plugins[0]
-	}
 	ts := httptest.NewServer(srv.router())
 	t.Cleanup(ts.Close)
 	return ts, s, r, authSvc, perms

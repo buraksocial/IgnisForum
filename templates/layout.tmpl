@@ -1,5 +1,5 @@
 {{define "header"}}<!doctype html>
-<html lang="tr" data-theme="{{.ThemeID}}" data-color-scheme="light"{{if .Appearance.Accent}} style="--color-brand:{{.Appearance.Accent}}"{{end}}>
+<html lang="{{.Locale.Tag}}" dir="{{.Locale.Direction}}" data-theme="{{.ThemeID}}" data-color-scheme="light"{{if .Appearance.Accent}} style="--color-brand:{{.Appearance.Accent}}"{{end}}>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -10,30 +10,30 @@
 <header class="site-header"><div class="container inner">
 <a class="logo" href="/">Ignis<span>Forum</span></a>
 <nav class="main-nav">
-  <a href="/" class="{{if eq .Nav "home"}}active{{end}}">Forumlar</a>
-  <a href="/latest" class="{{if eq .Nav "latest"}}active{{end}}">Yeni içerikler</a>
-  <a href="/search" class="{{if eq .Nav "search"}}active{{end}}">Ara</a>
-  {{if .Me}}<a href="/notifications" class="{{if eq .Nav "notifications"}}active{{end}}">Bildirimler{{if gt .UnreadNotifications 0}} <span class="notification-badge">{{.UnreadNotifications}}</span>{{end}}</a>{{end}}
-  {{if .Admin}}<a href="/admin" class="{{if eq .Nav "admin"}}active{{end}}">Yönetim</a>{{end}}
+  <a href="/" class="{{if eq .Nav "home"}}active{{end}}">{{.Locale.Text "nav.forums"}}</a>
+  <a href="/latest" class="{{if eq .Nav "latest"}}active{{end}}">{{.Locale.Text "nav.latest"}}</a>
+  <a href="/search" class="{{if eq .Nav "search"}}active{{end}}">{{.Locale.Text "nav.search"}}</a>
+  {{if .Me}}<a href="/notifications" class="{{if eq .Nav "notifications"}}active{{end}}">{{.Locale.Text "nav.notifications"}}{{if gt .UnreadNotifications 0}} <span class="notification-badge">{{.UnreadNotifications}}</span>{{end}}</a>{{end}}
+  {{if .Admin}}<a href="/admin" class="{{if eq .Nav "admin"}}active{{end}}">{{.Locale.Text "nav.admin"}}</a>{{end}}
 </nav>
 <div class="hdr-user">
-  <details class="theme-menu"><summary>Tema</summary><div class="theme-menu-items">{{range .ThemeOptions}}<a href="/theme/{{.ID}}?next={{$.ThemeBack}}">{{.Name}}</a>{{end}}</div></details>
-  <button class="theme-toggle" title="Tema değiştir" onclick="(function(){var h=document.documentElement;h.dataset.colorScheme=h.dataset.colorScheme==='dark'?'light':'dark';try{localStorage.setItem('ignis-theme',h.dataset.colorScheme)}catch(e){}})()">◐</button>
+  <details class="theme-menu"><summary>{{.Locale.Text "theme.menu"}}</summary><div class="theme-menu-items">{{range .ThemeOptions}}<a href="/theme/{{.ID}}?next={{$.ThemeBack}}">{{.Name}}</a>{{end}}</div></details>
+  <button class="theme-toggle" title="{{.Locale.Text "theme.toggle"}}" onclick="(function(){var h=document.documentElement;h.dataset.colorScheme=h.dataset.colorScheme==='dark'?'light':'dark';try{localStorage.setItem('ignis-theme',h.dataset.colorScheme)}catch(e){}})()">◐</button>
   {{if .Me}}
   <form method="post" action="/logout" style="display:inline">
     <input type="hidden" name="csrf" value="{{.CSRF}}">
     <a class="btn" href="/members/{{.Me.ID}}">{{.Me.Username}}</a>
-    <button type="submit" class="btn">Çıkış</button>
+    <button type="submit" class="btn">{{.Locale.Text "nav.logout"}}</button>
   </form>
   {{else}}
-  <a class="btn" href="/login">Giriş</a>
-  <a class="btn btn-primary" href="/register">Kayıt</a>
+  <a class="btn" href="/login">{{.Locale.Text "nav.login"}}</a>
+  <a class="btn btn-primary" href="/register">{{.Locale.Text "nav.register"}}</a>
   {{end}}
 </div>
 </div></header>
 <div class="container">
-{{if .Rebuilding}}<div class="rebuilding-banner">İçerik indeksleri yeniden oluşturuluyor — listeler geçici olarak eksik görünebilir.</div>{{end}}
-<nav class="breadcrumb"><a href="/">Ana Sayfa</a>{{range .Crumbs}}{{if .URL}} › <a href="{{.URL}}">{{.Title}}</a>{{else}} › {{.Title}}{{end}}{{end}}</nav>
+{{if .Rebuilding}}<div class="rebuilding-banner">{{.Locale.Text "layout.rebuilding"}}</div>{{end}}
+<nav class="breadcrumb"><a href="/">{{.Locale.Text "nav.home"}}</a>{{range .Crumbs}}{{if .URL}} › <a href="{{.URL}}">{{.Title}}</a>{{else}} › {{.Title}}{{end}}{{end}}</nav>
 {{end}}
 
 {{define "pager"}}
@@ -46,7 +46,7 @@
 
 {{define "footer"}}</div>
 <footer class="site-footer"><div class="container inner">
-<span>IgnisForum — <a href="https://github.com/buraksocial/IgnisForum">açık kaynak</a> · güç veren: <a href="https://github.com/buraksocial/IgnisDB-Go">IgnisDB-Go</a></span>
+<span>IgnisForum — <a href="https://github.com/buraksocial/IgnisForum">{{.Locale.Text "footer.source"}}</a> · {{.Locale.Text "footer.powered"}} <a href="https://github.com/buraksocial/IgnisDB-Go">IgnisDB-Go</a></span>
 <span>{{.Version}}</span>
 </div></footer>
 <script>try{var t=localStorage.getItem('ignis-theme');if(t)document.documentElement.dataset.colorScheme=t;else if(matchMedia('(prefers-color-scheme:dark)').matches)document.documentElement.dataset.colorScheme='dark'}catch(e){}</script>

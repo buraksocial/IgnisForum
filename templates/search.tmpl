@@ -1,9 +1,9 @@
 {{define "search"}}
 {{template "header" .}}
-<h1>Arama</h1>
+<h1>{{.Locale.Text "search.title"}}</h1>
 <form method="get" action="/search" style="max-width:560px;margin-bottom:24px">
-  <div class="form-row"><input type="search" name="q" value="{{.Query}}" placeholder="Konu ve mesajlarda ara…" autofocus></div>
-  <button type="submit" class="btn btn-primary">Ara</button>
+  <div class="form-row"><input type="search" name="q" value="{{.Query}}" placeholder="{{.Locale.Text "search.placeholder"}}" autofocus></div>
+  <button type="submit" class="btn btn-primary">{{.Locale.Text "nav.search"}}</button>
 </form>
 {{if .HaveQ}}
 {{if .Hits}}
@@ -11,12 +11,12 @@
   {{range .Hits}}
   <tr class="thread-row"><td>
     <a class="thread-title" href="/t/{{.ID}}">{{.Title}}</a>
-    <div class="thread-by">{{.Author}} · {{.ReplyCount}} yanıt · {{ago .Date}}</div>
+    <div class="thread-by">{{.Author}} · {{$.Locale.Count "count.replies" .ReplyCount}} · {{$.Locale.Ago .Date $.Now}}</div>
   </td></tr>
   {{end}}
 </tbody></table>
 {{else}}
-<div class="empty">«{{.Query}}» için sonuç bulunamadı.</div>
+<div class="empty">{{.Locale.Text "search.empty" .Query}}</div>
 {{end}}
 {{end}}
 {{template "footer" .}}
@@ -24,8 +24,8 @@
 
 {{define "notfound"}}
 {{template "header" .}}
-<div class="empty"><h1>404 — Bulunamadı</h1>
-<p>Aradığınız içerik kaldırılmış ya da hiç var olmamış olabilir.</p>
-<p><a class="btn" href="/">Ana sayfaya dön</a></p></div>
+<div class="empty"><h1>{{.Locale.Text "notfound.heading"}}</h1>
+<p>{{.Locale.Text "notfound.body"}}</p>
+<p><a class="btn" href="/">{{.Locale.Text "notfound.back"}}</a></p></div>
 {{template "footer" .}}
 {{end}}
