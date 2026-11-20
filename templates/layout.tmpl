@@ -13,6 +13,7 @@
   <a href="/" class="{{if eq .Nav "home"}}active{{end}}">Forumlar</a>
   <a href="/latest" class="{{if eq .Nav "latest"}}active{{end}}">Yeni içerikler</a>
   <a href="/search" class="{{if eq .Nav "search"}}active{{end}}">Ara</a>
+  {{if .Admin}}<a href="/admin" class="{{if eq .Nav "admin"}}active{{end}}">Yönetim</a>{{end}}
 </nav>
 <div class="hdr-user">
   <button class="theme-toggle" title="Tema değiştir" onclick="(function(){var h=document.documentElement;h.dataset.colorScheme=h.dataset.colorScheme==='dark'?'light':'dark';try{localStorage.setItem('ignis-theme',h.dataset.colorScheme)}catch(e){}})()">◐</button>
@@ -20,7 +21,6 @@
   <form method="post" action="/logout" style="display:inline">
     <input type="hidden" name="csrf" value="{{.CSRF}}">
     <a class="btn" href="/members/{{.Me.ID}}">{{.Me.Username}}</a>
-    {{if .Admin}}<a class="btn" href="/admin">Yönetim</a>{{end}}
     <button type="submit" class="btn">Çıkış</button>
   </form>
   {{else}}

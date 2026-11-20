@@ -158,6 +158,26 @@ func register(t *testing.T, ts *httptest.Server, name string) *http.Client {
 	return c
 }
 
+func loginAsAdmin(t *testing.T, ts *httptest.Server, s *store.Store, authSvc *auth.Service) *http.Client {
+	t.Helper()
+	password := "test-admin-password-2026"
+	hash, err := authSvc.HashPassword(password)
+	if err != nil {
+		t.Fatal(err)
+	}
+	users := auth.NewUserRepo(authSvc, auth.NewRateLimiter(s))
+	if _, err := users.CreateUserDirect(50, "admin-test", "admin-test@example.com", hash, []uint64{perm.GroupAdmin}, 1); err != nil {
+		t.Fatal(err)
+	}
+	c := jarNoRedirect()
+	csrf := preCSRF(t, c, ts.URL+"/login")
+	resp := formPost(t, c, ts.URL+"/login", url.Values{"username": {"admin-test"}, "password": {password}, "csrf": {csrf}})
+	if resp.StatusCode != http.StatusFound {
+		t.Fatalf("admin login = %d", resp.StatusCode)
+	}
+	return c
+}
+
 func TestPagesSmoke(t *testing.T) {
 	ts, _, _, _, _ := newTestServer(t)
 	c := noRedirectClient()
@@ -367,6 +387,38 @@ func TestReactionRequiresCSRFAndPersists(t *testing.T) {
 	_, body, _ := getBody(t, c, ts.URL+"/t/3")
 	if !strings.Contains(body, "👍 Beğen <span>1</span>") {
 		t.Fatal("reaction count not rendered")
+	}
+}
+
+func TestAdminPermissionMatrixIsProtectedAndWritable(t *testing.T) {
+	ts, s, _, authSvc, perms := newTestServer(t)
+	member := register(t, ts, "ordinary")
+	if code, _, _ := getBody(t, member, ts.URL+"/admin/permissions"); code != http.StatusForbidden {
+		t.Fatalf("member admin access = %d, want 403", code)
+	}
+	admin := loginAsAdmin(t, ts, s, authSvc)
+	code, body, _ := getBody(t, admin, ts.URL+"/admin/permissions?scope=*")
+	if code != http.StatusOK || !strings.Contains(body, "İzin matrisi") {
+		t.Fatalf("permission page = %d", code)
+	}
+	csrf := mustFindCSRF(t, admin, ts.URL+"/admin/permissions?scope=*")
+	form := url.Values{"csrf": {csrf}, "scope": {perm.ScopeGlobal}}
+	for _, groupID := range []uint64{perm.GroupGuest, perm.GroupMember, perm.GroupAdmin} {
+		for _, key := range perm.AllKeys {
+			form.Set("g"+itoa(groupID)+"_"+key, "inherit")
+		}
+	}
+	form.Set("g"+itoa(perm.GroupMember)+"_"+perm.KeyForumReply, "deny")
+	form.Set("g"+itoa(perm.GroupAdmin)+"_"+perm.KeyAdmin, "deny") // guarded against admin lockout
+	resp := formPost(t, admin, ts.URL+"/admin/permissions", form)
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("permission save = %d", resp.StatusCode)
+	}
+	if grants := perms.GetGrant(perm.GroupMember, perm.ScopeGlobal, 0); grants == nil || grants[perm.KeyForumReply] {
+		t.Fatalf("member reply grant = %#v, expected explicit deny", grants)
+	}
+	if grants := perms.GetGrant(perm.GroupAdmin, perm.ScopeGlobal, 0); grants == nil || !grants[perm.KeyAdmin] || !grants[perm.KeyAccess] {
+		t.Fatalf("admin safety grants = %#v", grants)
 	}
 }
 
