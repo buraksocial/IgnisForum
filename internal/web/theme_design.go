@@ -53,19 +53,19 @@ func (srv *Server) parseThemeDesign(form url.Values) (themeDesign, error) {
 		Radius: strings.TrimSpace(form.Get("corner_radius")),
 	}
 	if _, _, ok := srv.themes.Get(d.DefaultTheme); !ok {
-		return d, fmt.Errorf("geçersiz tema")
+		return d, fmt.Errorf("%s", srv.uiLocale().Text("appearance.bad_theme"))
 	}
 	if d.Accent != "" && !themeHexColor.MatchString(d.Accent) {
-		return d, fmt.Errorf("vurgu rengini #RRGGBB biçiminde girin")
+		return d, fmt.Errorf("%s", srv.uiLocale().Text("appearance.bad_accent"))
 	}
 	if d.Font != "" && themeFont(d.Font) == "" {
-		return d, fmt.Errorf("geçersiz yazı tipi")
+		return d, fmt.Errorf("%s", srv.uiLocale().Text("appearance.bad_font"))
 	}
 	if _, ok := themeNumber(d.SiteWidth, 960, 1800); !ok {
-		return d, fmt.Errorf("site genişliği 960–1800 piksel arasında bir tam sayı olmalı")
+		return d, fmt.Errorf("%s", srv.uiLocale().Text("appearance.bad_width"))
 	}
 	if _, ok := themeNumber(d.Radius, 0, 24); !ok {
-		return d, fmt.Errorf("köşe yarıçapı 0–24 piksel arasında bir tam sayı olmalı")
+		return d, fmt.Errorf("%s", srv.uiLocale().Text("appearance.bad_radius"))
 	}
 	d.Accent = strings.ToUpper(d.Accent)
 	return d, nil

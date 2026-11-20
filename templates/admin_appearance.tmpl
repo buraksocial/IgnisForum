@@ -1,48 +1,48 @@
 {{define "admin_appearance"}}
 {{template "header" .}}
-<h1>Görünüm ve eklentiler</h1>
+<h1>{{.Locale.Text "admin.appearance"}}</h1>
 {{if .ThemeDraft}}
-<p class="plugin-notice" role="status">Taslak önizleme — değişiklikler kaydedilmedi. <a href="/admin/appearance">Önizlemeden çık</a></p>
-<section class="side-panel widget" aria-label="Tema örneği"><h2 class="sp-title">Örnek forum kartı</h2>
-  <ul><li><a href="#theme-settings">Örnek konu bağlantısı</a></li><li><span class="btn btn-primary">Örnek düğme</span></li></ul>
+<p class="plugin-notice" role="status">{{.Locale.Text "appearance.draft"}} <a href="/admin/appearance">{{.Locale.Text "appearance.exit"}}</a></p>
+<section class="side-panel widget" aria-label="{{.Locale.Text "appearance.sample"}}"><h2 class="sp-title">{{.Locale.Text "appearance.card"}}</h2>
+  <ul><li><a href="#theme-settings">{{.Locale.Text "appearance.link"}}</a></li><li><span class="btn btn-primary">{{.Locale.Text "appearance.button"}}</span></li></ul>
 </section>
 {{end}}
-<section class="panel"><h2>Kurulu temalar</h2><ul>{{range .ThemeOptions}}<li><a href="/admin/appearance?preview={{.ID}}">{{.Name}} — önizle</a></li>{{end}}</ul></section>
+<section class="panel"><h2>{{.Locale.Text "appearance.themes"}}</h2><ul>{{range .ThemeOptions}}<li><a href="/admin/appearance?preview={{.ID}}">{{$.Locale.Text "appearance.preview_link" .Name}}</a></li>{{end}}</ul></section>
 <form class="panel" id="theme-settings" method="post" action="/admin/appearance">
   <input type="hidden" name="csrf" value="{{.CSRF}}">
-  <div class="form-row"><label for="default-theme">Varsayılan tema</label><select id="default-theme" name="default_theme">{{range .ThemeOptions}}<option value="{{.ID}}"{{if eq .ID $.Appearance.DefaultTheme}} selected{{end}}>{{.Name}}</option>{{end}}</select></div>
-  <div class="form-row"><label for="accent">Vurgu rengi (boş bırakılırsa temanın rengi kullanılır)</label><input id="accent" name="accent" maxlength="7" pattern="#[0-9A-Fa-f]{6}" placeholder="#4F83FF" value="{{.Appearance.Accent}}"></div>
-  <div class="form-row"><label for="theme-font">Yazı tipi</label><select id="theme-font" name="theme_font">
-    <option value="">Tema varsayılanı</option>
-    <option value="system"{{if eq .Appearance.Font "system"}} selected{{end}}>Sistem yazı tipi</option>
-    <option value="serif"{{if eq .Appearance.Font "serif"}} selected{{end}}>Serif</option>
-    <option value="mono"{{if eq .Appearance.Font "mono"}} selected{{end}}>Sabit genişlik</option>
+  <div class="form-row"><label for="default-theme">{{.Locale.Text "appearance.default"}}</label><select id="default-theme" name="default_theme">{{range .ThemeOptions}}<option value="{{.ID}}"{{if eq .ID $.Appearance.DefaultTheme}} selected{{end}}>{{.Name}}</option>{{end}}</select></div>
+  <div class="form-row"><label for="accent">{{.Locale.Text "appearance.accent"}}</label><input id="accent" name="accent" maxlength="7" pattern="#[0-9A-Fa-f]{6}" placeholder="#4F83FF" value="{{.Appearance.Accent}}"></div>
+  <div class="form-row"><label for="theme-font">{{.Locale.Text "appearance.font"}}</label><select id="theme-font" name="theme_font">
+    <option value="">{{.Locale.Text "appearance.theme_default"}}</option>
+    <option value="system"{{if eq .Appearance.Font "system"}} selected{{end}}>{{.Locale.Text "appearance.system"}}</option>
+    <option value="serif"{{if eq .Appearance.Font "serif"}} selected{{end}}>{{.Locale.Text "appearance.serif"}}</option>
+    <option value="mono"{{if eq .Appearance.Font "mono"}} selected{{end}}>{{.Locale.Text "appearance.mono"}}</option>
   </select></div>
-  <div class="form-row"><label for="site-width">Azami site genişliği (960–1800 px)</label><input type="number" id="site-width" name="site_width" min="960" max="1800" value="{{.Appearance.SiteWidth}}" placeholder="Tema varsayılanı"></div>
-  <div class="form-row"><label for="corner-radius">Köşe yarıçapı (0–24 px)</label><input type="number" id="corner-radius" name="corner_radius" min="0" max="24" value="{{.Appearance.Radius}}" placeholder="Tema varsayılanı"></div>
-  <fieldset><legend>Yerleşik eklentiler</legend>
-    <div class="form-row"><label><input type="checkbox" name="statistics" value="1"{{if .Appearance.Statistics}} checked{{end}}> Forum istatistikleri</label></div>
-    <div class="form-row"><label><input type="checkbox" name="presence" value="1"{{if .Appearance.Presence}} checked{{end}}> Çevrimiçi ve aktif üyeler (üye adları yalnızca oturum açanlara gösterilir)</label></div>
-    <div class="form-row"><label><input type="checkbox" name="media" value="1"{{if .Appearance.Media}} checked{{end}}> Mesajlarda harici görsel, bağlantı ve indirme bağlantıları</label></div>
-    <div class="form-row"><label><input type="checkbox" name="attachments" value="1"{{if .Appearance.Attachments}} checked{{end}}> Yerel dosya ekleri (mesaj başına bir dosya, en fazla 512 KiB)</label></div>
-    <div class="form-row"><label for="pinned">Sabit duyuru konu numaraları (virgülle ayırın; en fazla 8)</label><input id="pinned" name="pinned" value="{{range $i, $id := .Appearance.Pinned}}{{if $i}}, {{end}}{{$id}}{{end}}"></div>
-    <div class="form-row"><label for="ad-title">Reklam başlığı (boş bırakırsanız gösterilmez)</label><input id="ad-title" name="ad_title" maxlength="100" value="{{.Appearance.AdTitle}}"></div>
-    <div class="form-row"><label for="ad-url">Reklam bağlantısı</label><input id="ad-url" type="url" name="ad_url" maxlength="2048" value="{{.Appearance.AdURL}}"></div>
+  <div class="form-row"><label for="site-width">{{.Locale.Text "appearance.width"}}</label><input type="number" id="site-width" name="site_width" min="960" max="1800" value="{{.Appearance.SiteWidth}}" placeholder="{{.Locale.Text "appearance.theme_default"}}"></div>
+  <div class="form-row"><label for="corner-radius">{{.Locale.Text "appearance.radius"}}</label><input type="number" id="corner-radius" name="corner_radius" min="0" max="24" value="{{.Appearance.Radius}}" placeholder="{{.Locale.Text "appearance.theme_default"}}"></div>
+  <fieldset><legend>{{.Locale.Text "appearance.builtin"}}</legend>
+    <div class="form-row"><label><input type="checkbox" name="statistics" value="1"{{if .Appearance.Statistics}} checked{{end}}> {{.Locale.Text "home.stats"}}</label></div>
+    <div class="form-row"><label><input type="checkbox" name="presence" value="1"{{if .Appearance.Presence}} checked{{end}}> {{.Locale.Text "appearance.presence"}}</label></div>
+    <div class="form-row"><label><input type="checkbox" name="media" value="1"{{if .Appearance.Media}} checked{{end}}> {{.Locale.Text "appearance.media"}}</label></div>
+    <div class="form-row"><label><input type="checkbox" name="attachments" value="1"{{if .Appearance.Attachments}} checked{{end}}> {{.Locale.Text "appearance.attachments"}}</label></div>
+    <div class="form-row"><label for="pinned">{{.Locale.Text "appearance.pinned"}}</label><input id="pinned" name="pinned" value="{{range $i, $id := .Appearance.Pinned}}{{if $i}}, {{end}}{{$id}}{{end}}"></div>
+    <div class="form-row"><label for="ad-title">{{.Locale.Text "appearance.ad_title"}}</label><input id="ad-title" name="ad_title" maxlength="100" value="{{.Appearance.AdTitle}}"></div>
+    <div class="form-row"><label for="ad-url">{{.Locale.Text "appearance.ad_url"}}</label><input id="ad-url" type="url" name="ad_url" maxlength="2048" value="{{.Appearance.AdURL}}"></div>
   </fieldset>
-  <button class="btn btn-primary" type="submit" name="intent" value="save">Ayarları kaydet</button>
-  <button class="btn" type="submit" name="intent" value="preview">Temayı kaydetmeden önizle</button>
+  <button class="btn btn-primary" type="submit" name="intent" value="save">{{.Locale.Text "appearance.save"}}</button>
+  <button class="btn" type="submit" name="intent" value="preview">{{.Locale.Text "appearance.preview"}}</button>
 </form>
 {{if .Appearance.PreviousTheme}}<form class="panel" method="post" action="/admin/appearance">
   <input type="hidden" name="csrf" value="{{.CSRF}}">
-  <button class="btn" type="submit" name="intent" value="restore">Önceki tema ayarına dön</button>
-  <p>Duyuru, reklam ve eklenti ayarları değişmez.</p>
+  <button class="btn" type="submit" name="intent" value="restore">{{.Locale.Text "appearance.restore"}}</button>
+  <p>{{.Locale.Text "appearance.restore_help"}}</p>
 </form>{{end}}
-<section class="panel" id="wasm"><h2>Kurulu WASM paketleri</h2><ul>{{range .Extensions}}
-  <li>{{.Name}} ({{.ID}}, {{.Version}}) — {{if .Disabled}}Kapalı{{else if .BlockedBy}}Bağımlılık kapalı: {{.BlockedBy}}{{else}}Etkin{{end}}
+<section class="panel" id="wasm"><h2>{{.Locale.Text "appearance.wasm"}}</h2><ul>{{range .Extensions}}
+  <li>{{.Name}} ({{.ID}}, {{.Version}}) — {{if .Disabled}}{{$.Locale.Text "appearance.disabled"}}{{else if .BlockedBy}}{{$.Locale.Text "appearance.blocked" .BlockedBy}}{{else}}{{$.Locale.Text "appearance.enabled"}}{{end}}
     <form method="post" action="/admin/appearance/plugins/{{.ID}}">
       <input type="hidden" name="csrf" value="{{$.CSRF}}">
-      {{if .Disabled}}<button class="btn" name="action" value="enable">Etkinleştir</button>{{else}}<button class="btn" name="action" value="disable">Devre dışı bırak</button>{{end}}
+      {{if .Disabled}}<button class="btn" name="action" value="enable">{{$.Locale.Text "appearance.enable"}}</button>{{else}}<button class="btn" name="action" value="disable">{{$.Locale.Text "appearance.disable"}}</button>{{end}}
     </form>
-  </li>{{else}}<li>Kurulu paket yok.</li>{{end}}</ul></section>
+  </li>{{else}}<li>{{.Locale.Text "appearance.no_packages"}}</li>{{end}}</ul></section>
 {{template "footer" .}}
 {{end}}

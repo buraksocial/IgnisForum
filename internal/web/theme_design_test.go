@@ -9,7 +9,17 @@ import (
 )
 
 func TestThemeDraftSaveAndRestore(t *testing.T) {
-	ts, st, _, authSvc, _ := newTestServer(t)
+	for _, tag := range []string{"", "en"} {
+		t.Run("locale="+tag, func(t *testing.T) { testThemeDraftSaveAndRestore(t, tag) })
+	}
+}
+
+func testThemeDraftSaveAndRestore(t *testing.T, tag string) {
+	ts, st, _, authSvc, _ := newTestServerWithDeps(t, Deps{PreviewLocale: tag})
+	locale := turkish
+	if tag == "en" {
+		locale = englishPreview
+	}
 	if err := st.PutRaw(appearanceKey, []byte(`{"DefaultTheme":"thred","Accent":"#101010","Statistics":true}`)); err != nil {
 		t.Fatal(err)
 	}
@@ -39,7 +49,7 @@ func TestThemeDraftSaveAndRestore(t *testing.T) {
 	if err != nil || resp.StatusCode != 200 || resp.Header.Get("Cache-Control") != "private, no-store" {
 		t.Fatalf("draft status %d, read error %v", resp.StatusCode, err)
 	}
-	for _, want := range []string{"Taslak önizleme", `data-theme="ember"`, "--color-brand:#FFEEAA", "--color-brand-contrast:#000000", "--font-body:Georgia,serif", "--max-width-site:1440px", "--radius-theme:0px"} {
+	for _, want := range []string{locale.Text("appearance.draft"), locale.Text("appearance.save"), locale.Text("appearance.wasm"), locale.Text("appearance.attachments"), `data-theme="ember"`, "--color-brand:#FFEEAA", "--color-brand-contrast:#000000", "--font-body:Georgia,serif", "--max-width-site:1440px", "--radius-theme:0px", "</html>"} {
 		if !strings.Contains(string(b), want) {
 			t.Errorf("preview lacks %q", want)
 		}
@@ -81,12 +91,12 @@ func TestThemeDraftSaveAndRestore(t *testing.T) {
 		t.Fatalf("restore: %d", resp.StatusCode)
 	}
 	_, body, _ = getBody(t, guest, ts.URL+"/")
-	for _, want := range []string{`data-theme="thred"`, "--color-brand:#101010", "--color-brand-contrast:#FFFFFF", "New sponsor", "Sabit Duyurular"} {
+	for _, want := range []string{`data-theme="thred"`, "--color-brand:#101010", "--color-brand-contrast:#FFFFFF", "New sponsor", locale.Text("home.pinned")} {
 		if !strings.Contains(body, want) {
 			t.Errorf("restored page lacks %q", want)
 		}
 	}
-	if strings.Contains(body, "1440px") || strings.Contains(body, "Forum İstatistikleri") {
+	if strings.Contains(body, "1440px") || strings.Contains(body, locale.Text("home.stats")) {
 		t.Fatal("theme restore left the draft width or reverted widget settings")
 	}
 	if resp := formPost(t, admin, path, restore); resp.StatusCode != 409 {

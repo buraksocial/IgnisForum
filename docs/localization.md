@@ -16,8 +16,8 @@ Authentication validation errors and profile-save errors are also cataloged;
 unexpected account-creation failures are logged server-side rather than exposed
 in the UI. Thread pages, thread creation, reply/edit/report controls, reactions
 and poll controls also use the catalogs. Poll questions and choices remain
-user content. Administration and many server-side thread-action error messages
-still contain Turkish copy. The administration dashboard, report queue and
+user content. Many server-side thread-action error messages still contain
+Turkish copy. The administration dashboard, report queue and
 permission matrix now use catalogs, including built-in group names and
 permission labels. Stored permission keys and form values are unchanged.
 The preview does not establish RTL support.
@@ -25,6 +25,13 @@ The preview does not establish RTL support.
 Forum structure management is also cataloged, including its validation errors
 and deletion confirmation. The current parent category is selected separately
 for each forum edit form.
+
+Appearance management, draft preview, settings rollback, installed WASM status
+and their validation errors use `internal/web/locale_appearance.go`. Tests run
+theme preview/save/restore and dependency enable/disable flows in both current
+languages. Literal server-side message lookups and template keys are checked
+against both catalogs; this detects missing keys, not untranslated hardcoded
+copy, translation quality or complete language support.
 
 When moving copy into the catalog, use complete phrases rather than joining
 translated fragments. Use positional placeholders for phrases where arguments

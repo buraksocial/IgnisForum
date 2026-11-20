@@ -15,6 +15,12 @@ import (
 )
 
 func TestAdminControlsInstalledPlugins(t *testing.T) {
+	for _, tag := range []string{"", "en"} {
+		t.Run("locale="+tag, func(t *testing.T) { testAdminControlsInstalledPlugins(t, tag) })
+	}
+}
+
+func testAdminControlsInstalledPlugins(t *testing.T, tag string) {
 	// Minimal no-import ABI v1 module, returning a static home.decorate notice.
 	wasm, err := hex.DecodeString("0061736d010000000110036000017f60017f017f60027f7f017e0304030001020503010001073804066d656d6f727902001069676e69735f706c7567696e5f61706900000b69676e69735f616c6c6f6300010a69676e69735f686f6f6b00020a1103040041010b050041c0000b040042220b0b28010041000b227b226e6f7469636573223a5b22546573742077696467657420616374697665225d7d")
 	if err != nil {
@@ -46,7 +52,11 @@ func TestAdminControlsInstalledPlugins(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = m.Close(context.Background()) })
-	ts, st, _, authSvc, _ := newTestServer(t, m)
+	ts, st, _, authSvc, _ := newTestServerWithDeps(t, Deps{PreviewLocale: tag, Plugins: m})
+	locale := turkish
+	if tag == "en" {
+		locale = englishPreview
+	}
 	admin := loginAsAdmin(t, ts, st, authSvc)
 	member := register(t, ts, "pluginmember")
 	panel := ts.URL + "/admin/appearance"
@@ -72,7 +82,7 @@ func TestAdminControlsInstalledPlugins(t *testing.T) {
 	post(admin, "base", "disable", csrf, http.StatusSeeOther)
 	checkHome(1)
 	_, body, _ := getBody(t, admin, panel)
-	if !strings.Contains(body, "Bağımlılık kapalı: base") || !strings.Contains(body, "Bağımlılık kapalı: child") {
+	if !strings.Contains(body, locale.Text("appearance.blocked", "base")) || !strings.Contains(body, locale.Text("appearance.blocked", "child")) || !strings.Contains(body, locale.Text("appearance.disabled")) || !strings.Contains(body, locale.Text("appearance.enabled")) || !strings.Contains(body, locale.Text("appearance.enable")) || !strings.Contains(body, locale.Text("appearance.disable")) {
 		t.Fatal("dependency status missing from panel")
 	}
 	post(admin, "leaf", "disable", csrf, http.StatusSeeOther)

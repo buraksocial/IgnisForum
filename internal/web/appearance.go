@@ -52,7 +52,7 @@ func (srv *Server) adminAppearance(w http.ResponseWriter, r *http.Request) {
 	if srv.requireAdmin(w, r) == nil {
 		return
 	}
-	d := srv.base(r, "Görünüm ve eklentiler", "admin", nil)
+	d := srv.base(r, srv.uiLocale().Text("admin.appearance"), "admin", nil)
 	if theme, _, ok := srv.themes.Get(r.URL.Query().Get("preview")); ok {
 		d.ThemeID, d.ThemeVersion = theme.ID, theme.Version
 	}
@@ -63,7 +63,7 @@ func (srv *Server) renderAppearance(w http.ResponseWriter, r *http.Request, d *p
 	w.Header().Set("Cache-Control", "private, no-store")
 	disabled, err := srv.disabledPlugins()
 	if err != nil {
-		http.Error(w, "Eklenti ayarları okunamadı.", http.StatusInternalServerError)
+		http.Error(w, srv.uiLocale().Text("appearance.read_failed"), http.StatusInternalServerError)
 		return
 	}
 	d.Extensions = srv.D.Plugins.ConfiguredStatus(disabled)
@@ -82,12 +82,12 @@ func (srv *Server) savePluginState(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := r.ParseForm(); err != nil || !csrfOK(r, r.PostForm.Get("csrf")) {
-		srv.deny(w, r, "Form doğrulanamadı.")
+		srv.deny(w, r, srv.uiLocale().Text("appearance.bad_form"))
 		return
 	}
 	id, action := chi.URLParam(r, "pluginID"), r.PostForm.Get("action")
 	if action != "enable" && action != "disable" {
-		http.Error(w, "Geçersiz eklenti işlemi.", http.StatusBadRequest)
+		http.Error(w, srv.uiLocale().Text("appearance.bad_plugin_action"), http.StatusBadRequest)
 		return
 	}
 	found := false
@@ -106,7 +106,7 @@ func (srv *Server) savePluginState(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := srv.setPluginDisabled(id, action == "disable"); err != nil {
-		http.Error(w, "Eklenti ayarı kaydedilemedi.", http.StatusInternalServerError)
+		http.Error(w, srv.uiLocale().Text("appearance.plugin_save_failed"), http.StatusInternalServerError)
 		return
 	}
 	log.Printf("plugin %s action=%s admin=%d", id, action, admin.ID)
@@ -137,7 +137,7 @@ func (srv *Server) saveAppearance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := r.ParseForm(); err != nil || !csrfOK(r, r.PostForm.Get("csrf")) {
-		srv.deny(w, r, "Form doğrulanamadı.")
+		srv.deny(w, r, srv.uiLocale().Text("appearance.bad_form"))
 		return
 	}
 	if ok, retry := srv.D.RL.Allow("appearance", itoa(admin.ID), 20, time.Minute); !ok {
@@ -150,7 +150,7 @@ func (srv *Server) saveAppearance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if intent != "" && intent != "save" && intent != "preview" {
-		http.Error(w, "Geçersiz görünüm işlemi.", http.StatusBadRequest)
+		http.Error(w, srv.uiLocale().Text("appearance.bad_action"), http.StatusBadRequest)
 		return
 	}
 	design, err := srv.parseThemeDesign(r.PostForm)
@@ -166,14 +166,14 @@ func (srv *Server) saveAppearance(w http.ResponseWriter, r *http.Request) {
 	}
 	pins := strings.FieldsFunc(r.PostForm.Get("pinned"), func(r rune) bool { return r == ',' || r == ' ' || r == '\n' || r == '\r' || r == '\t' })
 	if len(pins) > 8 || utf8.RuneCountInString(s.AdTitle) > 100 || (s.AdTitle == "") != (s.AdURL == "") || (s.AdURL != "" && !externalHTTPS(s.AdURL)) {
-		http.Error(w, "En fazla 8 duyuru ve geçerli bir HTTPS reklam bağlantısı kullanın.", http.StatusBadRequest)
+		http.Error(w, srv.uiLocale().Text("appearance.bad_ad"), http.StatusBadRequest)
 		return
 	}
 	seen := make(map[uint64]bool)
 	for _, pin := range pins {
 		id := parseID(pin)
 		if th, ok := srv.Repos.Threads.Get(id); id == 0 || !ok || th.Status != domain.ThreadOpen && th.Status != domain.ThreadClosed || th.DiscussionState != 0 {
-			http.Error(w, "Duyuru için geçerli bir konu numarası girin.", http.StatusBadRequest)
+			http.Error(w, srv.uiLocale().Text("appearance.bad_pin"), http.StatusBadRequest)
 			return
 		}
 		if !seen[id] {
@@ -182,7 +182,7 @@ func (srv *Server) saveAppearance(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if intent == "preview" {
-		d := srv.base(r, "Görünüm ve eklentiler", "admin", nil)
+		d := srv.base(r, srv.uiLocale().Text("admin.appearance"), "admin", nil)
 		s.PreviousTheme = d.Appearance.PreviousTheme
 		d.Appearance, d.ThemeDraft = s, true
 		theme, _, _ := srv.themes.Get(s.DefaultTheme)
@@ -191,7 +191,7 @@ func (srv *Server) saveAppearance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := srv.persistAppearance(s); err != nil {
-		http.Error(w, "Ayarlar kaydedilemedi.", http.StatusInternalServerError)
+		http.Error(w, srv.uiLocale().Text("appearance.save_failed"), http.StatusInternalServerError)
 		return
 	}
 	log.Printf("appearance settings updated by admin=%d", admin.ID)
@@ -234,9 +234,9 @@ func (srv *Server) restoreTheme(w http.ResponseWriter, r *http.Request, adminID 
 		log.Printf("previous theme restored by admin=%d", adminID)
 		http.Redirect(w, r, "/admin/appearance", status)
 	case http.StatusConflict:
-		http.Error(w, "Geri alınabilir önceki tema ayarı yok veya tema artık kurulu değil.", status)
+		http.Error(w, srv.uiLocale().Text("appearance.no_restore"), status)
 	default:
-		http.Error(w, "Tema ayarları geri alınamadı.", status)
+		http.Error(w, srv.uiLocale().Text("appearance.restore_failed"), status)
 	}
 }
 

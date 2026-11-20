@@ -1,16 +1,66 @@
 package web
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"io/fs"
 	"net/http"
 	"net/url"
+	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	assets "github.com/buraksocial/IgnisForum"
 )
+
+// Check literal server-side lookups as well as embedded templates. This catches
+// typos that would otherwise silently fall back to displaying a catalog key.
+func TestServerLocaleKeys(t *testing.T) {
+	files, err := fs.Glob(os.DirFS("."), "*.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, file := range files {
+		if strings.HasSuffix(file, "_test.go") {
+			continue
+		}
+		tree, err := parser.ParseFile(token.NewFileSet(), file, nil, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ast.Inspect(tree, func(node ast.Node) bool {
+			call, ok := node.(*ast.CallExpr)
+			if !ok || len(call.Args) == 0 {
+				return true
+			}
+			sel, ok := call.Fun.(*ast.SelectorExpr)
+			if !ok || (sel.Sel.Name != "Text" && sel.Sel.Name != "Count") {
+				return true
+			}
+			literal, ok := call.Args[0].(*ast.BasicLit)
+			if !ok || literal.Kind != token.STRING {
+				return true
+			}
+			key, err := strconv.Unquote(literal.Value)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if sel.Sel.Name == "Count" {
+				key += ".other"
+			}
+			for _, locale := range []*uiLocale{turkish, englishPreview} {
+				if locale.messages[key] == "" {
+					t.Errorf("%s: %s lacks %q", file, locale.Tag, key)
+				}
+			}
+			return true
+		})
+	}
+}
 
 func TestLocalizedTemplateKeys(t *testing.T) {
 	keys := regexp.MustCompile(`\.Locale\.(Text|Count) "([a-z_.]+)"`)
