@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"golang.org/x/crypto/argon2"
+	"golang.org/x/crypto/bcrypt"
 
 	"github.com/buraksocial/IgnisForum/internal/store"
 )
@@ -76,6 +77,16 @@ func (a *Service) HashPassword(password string) (string, error) {
 
 // VerifyPassword checks a password against an encoded hash in constant time.
 func (a *Service) VerifyPassword(password, encoded string) bool {
+	// Flarum (PHP password_hash) stores bcrypt hashes with the $2y$ prefix.
+	// Go's bcrypt parser accepts the equivalent $2a$ variant; the prefix is
+	// normalized only in memory and the original hash remains untouched until
+	// Login performs the successful Argon2id rehash.
+	if strings.HasPrefix(encoded, "$2y$") || strings.HasPrefix(encoded, "$2b$") {
+		encoded = "$2a$" + encoded[4:]
+	}
+	if strings.HasPrefix(encoded, "$2a$") {
+		return bcrypt.CompareHashAndPassword([]byte(encoded), []byte(password)) == nil
+	}
 	parts := strings.Split(encoded, "$")
 	// ["", "argon2id", "v=19", "m=..,t=..,p=..", salt, key]
 	if len(parts) != 6 || parts[1] != "argon2id" || parts[2] != "v=19" {
@@ -83,15 +94,20 @@ func (a *Service) VerifyPassword(password, encoded string) bool {
 	}
 	var m, t uint32
 	var p uint8
-	if _, err := fmt.Sscanf(parts[3], "m=%d,t=%d,p=%d", &m, &t, &p); err != nil {
+	if n, err := fmt.Sscanf(parts[3], "m=%d,t=%d,p=%d", &m, &t, &p); err != nil || n != 3 {
+		return false
+	}
+	// Encodings are persisted and may originate outside this service. Refuse
+	// unreasonable parameters before allocating Argon2's memory buffer.
+	if m < 8*1024 || m > 256*1024 || t == 0 || t > 10 || p == 0 || p > 8 {
 		return false
 	}
 	salt, err := base64.RawStdEncoding.DecodeString(parts[4])
-	if err != nil {
+	if err != nil || len(salt) < 8 || len(salt) > 64 {
 		return false
 	}
 	want, err := base64.RawStdEncoding.DecodeString(parts[5])
-	if err != nil {
+	if err != nil || len(want) < 16 || len(want) > 64 {
 		return false
 	}
 	got := argon2.IDKey([]byte(password), salt, t, m, p, uint32(len(want)))

@@ -233,6 +233,19 @@ func (u *UserRepo) Login(identifier, password string, remember bool, ip string) 
 	if !u.s.VerifyPassword(password, usr.PasswordHash) {
 		return nil, nil, ErrBadCredentials
 	}
+	// Upgrade legacy/imported hashes after proof of password ownership. A failed
+	// durable write fails login closed rather than continuing to use legacy
+	// credentials indefinitely.
+	if !strings.HasPrefix(usr.PasswordHash, "$argon2id$") {
+		hash, err := u.s.HashPassword(password)
+		if err != nil {
+			return nil, nil, err
+		}
+		usr.PasswordHash = hash
+		if err := u.s.s.PutJSON(keyUser(usr.ID), usr); err != nil {
+			return nil, nil, err
+		}
+	}
 
 	// Success clears the brute-force counters for this identifier + IP.
 	u.rl.Clear("login", "ip:"+HashIP(ip))

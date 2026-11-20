@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"golang.org/x/crypto/bcrypt"
+
 	"github.com/buraksocial/IgnisForum/internal/store"
 )
 
@@ -39,6 +41,52 @@ func TestPasswordHash(t *testing.T) {
 	for _, bad := range []string{"", "$argon2id", "plain", "$argon2id$v=19$m=x$y$z", strings.Repeat("$", 5)} {
 		if a.VerifyPassword("whatever", bad) {
 			t.Errorf("verify accepted malformed %q", bad)
+		}
+	}
+}
+
+func TestFlarumBcryptVerificationAndLoginRehash(t *testing.T) {
+	s := openStore(t)
+	a := NewService(s)
+	rl := NewRateLimiter(s)
+	users := NewUserRepo(a, rl)
+
+	legacy, err := bcrypt.GenerateFromPassword([]byte("flarum-password-123"), bcrypt.MinCost)
+	if err != nil {
+		t.Fatal(err)
+	}
+	flarumHash := strings.Replace(string(legacy), "$2a$", "$2y$", 1)
+	if !a.VerifyPassword("flarum-password-123", flarumHash) {
+		t.Fatal("Flarum PHP bcrypt $2y$ hash did not verify")
+	}
+	if a.VerifyPassword("incorrect-password", flarumHash) {
+		t.Fatal("bcrypt accepted incorrect password")
+	}
+	user, err := users.CreateUserDirect(901, "flarumuser", "flarum@example.test", flarumHash, []uint64{GroupMember}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	loggedIn, _, err := users.Login("flarumuser", "flarum-password-123", false, "127.0.0.1")
+	if err != nil || loggedIn.ID != user.ID {
+		t.Fatalf("legacy login = %+v, %v", loggedIn, err)
+	}
+	stored, ok := users.GetByID(user.ID)
+	if !ok || !strings.HasPrefix(stored.PasswordHash, "$argon2id$") {
+		t.Fatalf("legacy hash was not upgraded: %q", stored.PasswordHash)
+	}
+	if !a.VerifyPassword("flarum-password-123", stored.PasswordHash) {
+		t.Fatal("rehash does not verify")
+	}
+}
+
+func TestArgonVerifierRejectsExcessiveParameters(t *testing.T) {
+	a := NewService(openStore(t))
+	for _, hash := range []string{
+		"$argon2id$v=19$m=4294967295,t=1,p=1$YWJjZGVmZ2g$YWJjZGVmZ2hpamtsbW5vcA",
+		"$argon2id$v=19$m=65536,t=999,p=1$YWJjZGVmZ2g$YWJjZGVmZ2hpamtsbW5vcA",
+	} {
+		if a.VerifyPassword("anything", hash) {
+			t.Fatalf("accepted unsafe encoding %q", hash)
 		}
 	}
 }
