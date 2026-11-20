@@ -149,12 +149,15 @@ func Load(ctx context.Context, dir string) (*Manager, error) {
 		}
 		// No host modules are instantiated in this runtime, so any import
 		// (including WASI or a plugin-defined capability) cannot be resolved.
-		probe, err := runtime.InstantiateModule(ctx, compiled, wazero.NewModuleConfig().WithName("validate-"+id).WithStartFunctions())
+		probeCtx, cancel := context.WithTimeout(ctx, callTimeout)
+		probe, err := runtime.InstantiateModule(probeCtx, compiled, wazero.NewModuleConfig().WithName("validate-"+id).WithStartFunctions())
 		if err != nil {
+			cancel()
 			_ = compiled.Close(ctx)
 			return nil, m.fail(ctx, fmt.Errorf("plugin %q imports or initialization are not allowed: %w", id, err))
 		}
 		_ = probe.Close(ctx)
+		cancel()
 		m.plugins = append(m.plugins, loadedPlugin{manifest: manifests[id], module: compiled})
 	}
 	return m, nil
@@ -291,6 +294,11 @@ func (m *Manager) RunHook(ctx context.Context, hook string, input any) ([][]byte
 
 // RunEnabledHook applies one immutable administrative settings snapshot.
 func (m *Manager) RunEnabledHook(ctx context.Context, hook string, input any, disabled map[string]bool) ([][]byte, error) {
+	return m.RunConfiguredHook(ctx, hook, input, disabled, nil)
+}
+
+// RunConfiguredHook passes only the current package's bounded public options.
+func (m *Manager) RunConfiguredHook(ctx context.Context, hook string, input any, disabled map[string]bool, configs map[string]json.RawMessage) ([][]byte, error) {
 	if m == nil || len(m.plugins) == 0 {
 		return nil, nil
 	}
@@ -310,7 +318,12 @@ func (m *Manager) RunEnabledHook(ctx context.Context, hook string, input any, di
 		if disabled[item.manifest.ID] || blocked[item.manifest.ID] != "" || !contains(item.manifest.Hooks, hook) {
 			continue
 		}
-		result, err := m.invoke(ctx, item, hook, encoded)
+		config, err := NormalizeConfig(configs[item.manifest.ID])
+		if err != nil {
+			errs = append(errs, fmt.Errorf("plugin %s configuration: %w", item.manifest.ID, err))
+			continue
+		}
+		result, err := m.invoke(ctx, item, hook, encoded, config)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("plugin %s: %w", item.manifest.ID, err))
 			continue
@@ -320,7 +333,42 @@ func (m *Manager) RunEnabledHook(ctx context.Context, hook string, input any, di
 	return results, errors.Join(errs...)
 }
 
-func (m *Manager) invoke(parent context.Context, item loadedPlugin, hook string, input []byte) ([]byte, error) {
+var ErrPreviewDependency = errors.New("preview dependency is disabled")
+var ErrPreviewNotFound = errors.New("preview plugin or hook not found")
+
+// PreviewHook privately invokes one installed package, including a disabled
+// target, but never bypasses disabled dependencies or changes live preferences.
+// Each invocation uses fresh sandbox memory, just like normal hook execution.
+func (m *Manager) PreviewHook(ctx context.Context, id, hook string, input any, disabled map[string]bool, rawConfig []byte) ([]byte, error) {
+	if m == nil {
+		return nil, ErrPreviewNotFound
+	}
+	for _, item := range m.plugins {
+		if item.manifest.ID != id || !contains(item.manifest.Hooks, hook) {
+			continue
+		}
+		if m.inactive(disabled)[id] != "" {
+			return nil, ErrPreviewDependency
+		}
+		config, err := NormalizeConfig(rawConfig)
+		if err != nil {
+			return nil, err
+		}
+		encoded, err := json.Marshal(input)
+		if err != nil {
+			return nil, err
+		}
+		if len(encoded) > maxPayloadBytes {
+			return nil, errors.New("plugin input exceeds payload limit")
+		}
+		ctx, cancel := context.WithTimeout(ctx, callTimeout)
+		defer cancel()
+		return m.invoke(ctx, item, hook, encoded, config)
+	}
+	return nil, ErrPreviewNotFound
+}
+
+func (m *Manager) invoke(parent context.Context, item loadedPlugin, hook string, input []byte, config json.RawMessage) ([]byte, error) {
 	ctx := parent
 	mod, err := m.runtime.InstantiateModule(ctx, item.module, wazero.NewModuleConfig().WithName("").WithStartFunctions())
 	if err != nil {
@@ -334,9 +382,13 @@ func (m *Manager) invoke(parent context.Context, item loadedPlugin, hook string,
 	}
 	mem := mod.ExportedMemory("memory")
 	hookBytes, _ := json.Marshal(struct {
-		Hook string          `json:"hook"`
-		Data json.RawMessage `json:"data"`
-	}{Hook: hook, Data: input})
+		Hook   string          `json:"hook"`
+		Data   json.RawMessage `json:"data"`
+		Config json.RawMessage `json:"config,omitempty"`
+	}{Hook: hook, Data: input, Config: config})
+	if len(hookBytes) > maxPayloadBytes {
+		return nil, errors.New("plugin envelope exceeds payload limit")
+	}
 	// The ABI receives a single JSON envelope so new hook data can be added
 	// compatibly without changing function signatures.
 	allocResult, err := mod.ExportedFunction("ignis_alloc").Call(ctx, uint64(len(hookBytes)))

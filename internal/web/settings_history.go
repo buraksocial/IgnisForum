@@ -40,7 +40,8 @@ func appendSettingsEvent(events []settingsEvent, adminID uint64, action, target 
 
 type pluginPreferences struct {
 	Disabled map[string]bool
-	History  []settingsEvent `json:",omitempty"`
+	Config   map[string]json.RawMessage `json:",omitempty"`
+	History  []settingsEvent            `json:",omitempty"`
 }
 
 // Read the original bare disabled-ID map as well as the versioned envelope.

@@ -74,6 +74,8 @@ The old forum and its MariaDB data remain authoritative until cutover acceptance
 - [x] Retain bounded, administrator-visible history for appearance saves, theme
   restores and explicit WASM state changes, atomic with each settings record;
   verify legacy preferences, restart persistence and concurrent updates.
+- [x] Add bounded per-plugin JSON configuration and administrator-only sandboxed
+  single-plugin preview without changing live state.
 - [ ] Add admin-managed installation/preview/configuration, durable audit events,
   and version rollback before treating extensions as complete.
 - [x] Build an isolated read-only Flarum staging importer for users, groups,

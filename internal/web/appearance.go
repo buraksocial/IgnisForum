@@ -79,6 +79,16 @@ func (srv *Server) renderAppearance(w http.ResponseWriter, r *http.Request, d *p
 		return
 	}
 	d.Extensions = srv.D.Plugins.ConfiguredStatus(preferences.Disabled)
+	d.ExtensionSettings = make(map[string]string, len(d.Extensions))
+	for _, extension := range d.Extensions {
+		d.ExtensionSettings[extension.ID] = "{}"
+		if config := preferences.Config[extension.ID]; len(config) != 0 {
+			d.ExtensionSettings[extension.ID] = string(config)
+		}
+	}
+	if d.PluginPreviewTarget != "" {
+		d.ExtensionSettings[d.PluginPreviewTarget] = d.PluginPreviewConfig
+	}
 	current, err := srv.readAppearance()
 	if err != nil {
 		http.Error(w, srv.uiLocale().Text("appearance.history_failed"), http.StatusInternalServerError)
@@ -103,7 +113,7 @@ func (srv *Server) savePluginState(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id, action := chi.URLParam(r, "pluginID"), r.PostForm.Get("action")
-	if action != "enable" && action != "disable" {
+	if action != "enable" && action != "disable" && action != "configure" && action != "preview" {
 		http.Error(w, srv.uiLocale().Text("appearance.bad_plugin_action"), http.StatusBadRequest)
 		return
 	}
@@ -120,6 +130,10 @@ func (srv *Server) savePluginState(w http.ResponseWriter, r *http.Request) {
 	}
 	if ok, retry := srv.D.RL.Allow("plugin-state", itoa(admin.ID), 20, time.Minute); !ok {
 		srv.tooMany(w, r, retry)
+		return
+	}
+	if action == "configure" || action == "preview" {
+		srv.pluginConfiguration(w, r, admin.ID, id, action)
 		return
 	}
 	if err := srv.setPluginDisabled(id, action == "disable", admin.ID); err != nil {

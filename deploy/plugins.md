@@ -44,8 +44,23 @@ to subsequent requests; a hook already running may finish. Disabled packages
 are still validated at startup. Remove a broken package via the filesystem
 before restarting if it fails validation.
 
-Package installation, preview, per-plugin configuration, capability grants,
-health UI and version rollback are not implemented in the panel. Filesystem
+The panel accepts an optional bounded flat JSON configuration per package: up
+to 32 lowercase keys, 4096 bytes total, and only short strings, booleans or
+integers between -1000000 and 1000000. Nested values, nulls, arrays, duplicate
+keys, decimal numbers and trailing JSON are rejected. Settings are ordinary
+package input, not capability grants; do not store secrets. The normalized
+object is included in the hook envelope as `config`, and a package may ignore
+unknown keys.
+
+The **Preview** action runs only the selected installed package with bounded
+sample `home.decorate` data and submitted configuration. It uses a fresh
+sandbox, does not change enabled state, configuration or history, and is shown
+only to the requesting administrator. A disabled dependency blocks preview;
+the selected package itself may be previewed while disabled. Output has the
+same JSON and plain-text notice limits as a live hook. This is not a full home
+page preview and does not run other packages.
+
+Package installation, capability grants, health UI and version rollback are not implemented in the panel. Filesystem
 package changes must be made by a trusted operator and deployed as an atomic
 release. Do not expose the plugin directory as a web upload destination.
 

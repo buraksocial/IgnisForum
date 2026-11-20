@@ -193,19 +193,23 @@ func (srv *Server) me(r *http.Request) *domain.User {
 type Crumb struct{ URL, Title string }
 
 type pageData struct {
-	Locale          *uiLocale
-	Appearance      appearanceSettings
-	ThemeDraft      bool
-	Extensions      []plugin.Status
-	SettingsHistory []settingsEvent
-	Sidebar         sidebarView
-	PreviewURL      string
-	Title           string
-	Nav             string
-	Crumbs          []Crumb
-	Rebuilding      bool
-	Version         string
-	Now             time.Time
+	Locale               *uiLocale
+	Appearance           appearanceSettings
+	ThemeDraft           bool
+	Extensions           []plugin.Status
+	SettingsHistory      []settingsEvent
+	ExtensionSettings    map[string]string
+	PluginPreviewTarget  string
+	PluginPreviewConfig  string
+	PluginPreviewNotices []string
+	Sidebar              sidebarView
+	PreviewURL           string
+	Title                string
+	Nav                  string
+	Crumbs               []Crumb
+	Rebuilding           bool
+	Version              string
+	Now                  time.Time
 
 	// M2 identity: Me is nil for guests; CSRF is the session token every
 	// form must submit.
@@ -624,27 +628,14 @@ func (srv *Server) home(w http.ResponseWriter, r *http.Request) {
 	d.LatestThreads = srv.threadsFromIDs(srv.Store.ZPage(repo.IdxLatestThreads, 0, 10), d.Me)
 	if srv.D.Plugins != nil {
 		var results [][]byte
-		disabled, err := srv.disabledPlugins()
+		preferences, err := srv.readPluginPreferencesRecord(false)
 		if err == nil {
-			results, err = srv.D.Plugins.RunEnabledHook(r.Context(), "home.decorate", map[string]any{"version": Version, "categories": len(d.Cats)}, disabled)
+			results, err = srv.D.Plugins.RunConfiguredHook(r.Context(), "home.decorate", map[string]any{"version": Version, "categories": len(d.Cats)}, preferences.Disabled, preferences.Config)
 		}
 		if err != nil {
 			log.Printf("plugin hook home.decorate: %v", err)
 		}
-		for _, result := range results {
-			var response struct {
-				Notices []string `json:"notices"`
-			}
-			if json.Unmarshal(result, &response) != nil {
-				continue
-			}
-			for _, notice := range response.Notices {
-				notice = strings.TrimSpace(notice)
-				if notice != "" && len(notice) <= 240 && len(d.PluginNotices) < 5 {
-					d.PluginNotices = append(d.PluginNotices, notice)
-				}
-			}
-		}
+		d.PluginNotices = pluginNotices(results)
 	}
 	srv.render(w, "home", d)
 }

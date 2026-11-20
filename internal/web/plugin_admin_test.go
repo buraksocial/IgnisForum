@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -68,6 +69,30 @@ func testAdminControlsInstalledPlugins(t *testing.T, tag string) {
 			t.Fatalf("%s %s: got %d want %d", action, id, resp.StatusCode, want)
 		}
 	}
+	configure := func(action, config string, want int) string {
+		resp, err := admin.PostForm(panel+"/plugins/base", url.Values{"csrf": {csrf}, "action": {action}, "configuration": {config}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if resp.StatusCode != want {
+			t.Fatalf("%s configuration: got %d want %d", action, resp.StatusCode, want)
+		}
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		return string(body)
+	}
+	if configure("configure", `{"label":"hello","enabled":true}`, http.StatusSeeOther) != "" {
+		t.Fatal("configure redirect returned body")
+	}
+	preview := configure("preview", `{"label":"preview"}`, http.StatusOK)
+	if !strings.Contains(preview, locale.Text("appearance.plugin_preview", "base")) || !strings.Contains(preview, "Test widget active") {
+		t.Fatalf("plugin preview was not private or changed history: %s", preview)
+	}
+	_, body, _ := getBody(t, admin, panel)
+	settings, err := (&Server{Store: st}).readPluginPreferences()
+	if err != nil || string(settings.Config["base"]) != `{"enabled":true,"label":"hello"}` || !strings.Contains(body, "hello") {
+		t.Fatalf("saved plugin configuration missing: %s %+v %v", body, settings.Config, err)
+	}
 	checkHome := func(want int) {
 		t.Helper()
 		code, body, _ := getBody(t, noRedirectClient(), ts.URL+"/")
@@ -82,7 +107,15 @@ func testAdminControlsInstalledPlugins(t *testing.T, tag string) {
 	post(admin, "base", "unknown", csrf, http.StatusBadRequest)
 	post(admin, "base", "disable", csrf, http.StatusSeeOther)
 	checkHome(1)
-	_, body, _ := getBody(t, admin, panel)
+	resp, err := admin.PostForm(panel+"/plugins/child", url.Values{"csrf": {csrf}, "action": {"preview"}, "configuration": {`{"bad":true}`}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("dependency preview: %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+	_, body, _ = getBody(t, admin, panel)
 	if !strings.Contains(body, locale.Text("appearance.blocked", "base")) || !strings.Contains(body, locale.Text("appearance.blocked", "child")) || !strings.Contains(body, locale.Text("appearance.disabled")) || !strings.Contains(body, locale.Text("appearance.enabled")) || !strings.Contains(body, locale.Text("appearance.enable")) || !strings.Contains(body, locale.Text("appearance.disable")) {
 		t.Fatal("dependency status missing from panel")
 	}
@@ -93,11 +126,11 @@ func testAdminControlsInstalledPlugins(t *testing.T, tag string) {
 	checkHome(4)
 	post(admin, "leaf", "enable", csrf, http.StatusSeeOther)
 	reader := &Server{Store: st}
-	settings, err := reader.readPluginPreferences()
-	if err != nil || len(settings.History) != 4 || len(settings.Disabled) != 0 {
+	settings, err = reader.readPluginPreferences()
+	if err != nil || len(settings.History) != 5 || len(settings.Disabled) != 0 {
 		t.Fatalf("plugin history=%+v disabled=%v error=%v", settings.History, settings.Disabled, err)
 	}
-	for i, target := range []string{"base", "leaf", "base", "leaf"} {
+	for i, target := range []string{"base", "base", "leaf", "base", "leaf"} {
 		event := settings.History[i]
 		if event.Target != target || event.AdminID == 0 || event.At.IsZero() {
 			t.Errorf("invalid plugin event: %+v", event)

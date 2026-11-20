@@ -43,7 +43,20 @@
       <input type="hidden" name="csrf" value="{{$.CSRF}}">
       {{if .Disabled}}<button class="btn" name="action" value="enable">{{$.Locale.Text "appearance.enable"}}</button>{{else}}<button class="btn" name="action" value="disable">{{$.Locale.Text "appearance.disable"}}</button>{{end}}
     </form>
+    <form method="post" action="/admin/appearance/plugins/{{.ID}}">
+      <input type="hidden" name="csrf" value="{{$.CSRF}}">
+      <div class="form-row"><label for="config-{{.ID}}">{{$.Locale.Text "appearance.config"}}</label>
+        <textarea id="config-{{.ID}}" name="configuration" rows="3" maxlength="4096" aria-describedby="config-help-{{.ID}}">{{index $.ExtensionSettings .ID}}</textarea>
+      </div>
+      <p class="muted" id="config-help-{{.ID}}">{{$.Locale.Text "appearance.config_help"}}</p>
+      <button class="btn" name="action" value="configure">{{$.Locale.Text "appearance.config_save"}}</button>
+      <button class="btn" name="action" value="preview">{{$.Locale.Text "appearance.config_preview"}}</button>
+    </form>
   </li>{{else}}<li>{{.Locale.Text "appearance.no_packages"}}</li>{{end}}</ul></section>
+{{if .PluginPreviewTarget}}<section class="panel" id="plugin-preview" aria-live="polite"><h2>{{.Locale.Text "appearance.plugin_preview" .PluginPreviewTarget}}</h2>
+  <p>{{.Locale.Text "appearance.plugin_preview_help"}}</p>
+  {{range .PluginPreviewNotices}}<p class="plugin-notice">{{.}}</p>{{else}}<p>{{.Locale.Text "appearance.preview_empty"}}</p>{{end}}
+</section>{{end}}
 <section class="panel" id="settings-history"><h2>{{.Locale.Text "history.heading"}}</h2>
   <p class="muted">{{.Locale.Text "history.help"}}</p>
   <ul>{{range .SettingsHistory}}<li><time datetime="{{.At.Format "2006-01-02T15:04:05Z07:00"}}" title="{{.At.Format "2006-01-02 15:04:05Z07:00"}}">{{$.Locale.Ago .At $.Now}}</time> — {{$.Locale.Text "history.admin" (printf "%d" .AdminID)}} · {{$.Locale.Text .Action}} · {{.Target}}</li>
