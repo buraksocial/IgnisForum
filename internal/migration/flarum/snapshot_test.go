@@ -6,7 +6,7 @@ import (
 )
 
 func TestSnapshotCountsAndCanonicalDigest(t *testing.T) {
-	base := `{"format_version":1,"source":"flarum","generated_at":"2026-01-01T00:00:00Z","tables":{"users":{"source_count":0,"rows":[]},"groups":{"source_count":0,"rows":[]},"group_user":{"source_count":0,"rows":[]},"discussions":{"source_count":0,"rows":[]},"posts":{"source_count":0,"rows":[]},"tags":{"source_count":0,"rows":[]},"discussion_tag":{"source_count":0,"rows":[]},"post_likes":{"source_count":0,"rows":[]},"flags":{"source_count":0,"rows":[]},"notifications":{"source_count":0,"rows":[]}}}`
+	base := `{"format_version":1,"source":"flarum","generated_at":"2026-01-01T00:00:00Z","tables":{"users":{"source_count":0,"rows":[]},"groups":{"source_count":0,"rows":[]},"group_user":{"source_count":0,"rows":[]},"group_permission":{"source_count":0,"rows":[]},"discussions":{"source_count":0,"rows":[]},"posts":{"source_count":0,"rows":[]},"tags":{"source_count":0,"rows":[]},"discussion_tag":{"source_count":0,"rows":[]},"post_likes":{"source_count":0,"rows":[]},"flags":{"source_count":0,"rows":[]},"notifications":{"source_count":0,"rows":[]}}}`
 	first, digest1, err := ReadSnapshot(strings.NewReader(base))
 	if err != nil {
 		t.Fatal(err)
@@ -28,7 +28,7 @@ func TestSnapshotCountsAndCanonicalDigest(t *testing.T) {
 }
 
 func TestSnapshotRejectsCountMismatchAndUnknownSource(t *testing.T) {
-	valid := `{"format_version":1,"source":"flarum","tables":{"users":{"source_count":1,"rows":[]},"groups":{"source_count":0,"rows":[]},"group_user":{"source_count":0,"rows":[]},"discussions":{"source_count":0,"rows":[]},"posts":{"source_count":0,"rows":[]},"tags":{"source_count":0,"rows":[]},"discussion_tag":{"source_count":0,"rows":[]},"post_likes":{"source_count":0,"rows":[]},"flags":{"source_count":0,"rows":[]},"notifications":{"source_count":0,"rows":[]}}}`
+	valid := `{"format_version":1,"source":"flarum","tables":{"users":{"source_count":1,"rows":[]},"groups":{"source_count":0,"rows":[]},"group_user":{"source_count":0,"rows":[]},"group_permission":{"source_count":0,"rows":[]},"discussions":{"source_count":0,"rows":[]},"posts":{"source_count":0,"rows":[]},"tags":{"source_count":0,"rows":[]},"discussion_tag":{"source_count":0,"rows":[]},"post_likes":{"source_count":0,"rows":[]},"flags":{"source_count":0,"rows":[]},"notifications":{"source_count":0,"rows":[]}}}`
 	if _, _, err := ReadSnapshot(strings.NewReader(valid)); err == nil {
 		t.Fatal("accepted a mismatched source count")
 	}

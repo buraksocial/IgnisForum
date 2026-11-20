@@ -9,6 +9,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/buraksocial/IgnisForum/internal/auth"
+	"github.com/buraksocial/IgnisForum/internal/perm"
 	"github.com/buraksocial/IgnisForum/internal/repo"
 	"github.com/buraksocial/IgnisForum/internal/store"
 )
@@ -28,10 +29,11 @@ func TestImportPreservesSourceIDsSanitizesAndReplays(t *testing.T) {
 	}
 	flarumHash := strings.Replace(string(passwordHash), "$2a$", "$2y$", 1)
 	snapshot := testSnapshot(t, map[string][]map[string]any{
-		"users":       {{"id": 5, "username": "legacyuser", "email": "legacy@example.test", "is_email_confirmed": 1, "password": flarumHash, "avatar_url": nil, "joined_at": "2023-01-01 00:00:00", "last_seen_at": nil, "suspended_until": nil, "suspend_reason": nil}},
-		"groups":      {{"id": 1, "name_singular": "Admin", "name_plural": "Admins", "color": nil, "icon": nil, "is_hidden": 0, "created_at": nil}},
-		"group_user":  {{"user_id": 5, "group_id": 1, "created_at": nil}},
-		"discussions": {{"id": 100, "title": "Imported topic", "comment_count": 1, "created_at": "2023-02-01 00:00:00", "user_id": 5, "first_post_id": 200, "last_posted_at": "2023-02-02 00:00:00", "last_posted_user_id": 5, "last_post_id": 201, "hidden_at": nil, "slug": "imported-topic", "is_private": 0, "is_approved": 1, "is_sticky": 0, "is_locked": 0}},
+		"users":            {{"id": 5, "username": "legacyuser", "email": "legacy@example.test", "is_email_confirmed": 1, "password": flarumHash, "avatar_url": nil, "joined_at": "2023-01-01 00:00:00", "last_seen_at": nil, "suspended_until": nil, "suspend_reason": nil}},
+		"groups":           {{"id": 1, "name_singular": "Admin", "name_plural": "Admins", "color": nil, "icon": nil, "is_hidden": 0, "created_at": nil}, {"id": 3, "name_singular": "Member", "name_plural": "Members", "color": nil, "icon": nil, "is_hidden": 0, "created_at": nil}},
+		"group_user":       {{"user_id": 5, "group_id": 1, "created_at": nil}},
+		"group_permission": {{"group_id": 3, "permission": "startDiscussion"}, {"group_id": 3, "permission": "discussion.reply"}, {"group_id": 3, "permission": "searchUsers"}},
+		"discussions":      {{"id": 100, "title": "Imported topic", "comment_count": 1, "created_at": "2023-02-01 00:00:00", "user_id": 5, "first_post_id": 200, "last_posted_at": "2023-02-02 00:00:00", "last_posted_user_id": 5, "last_post_id": 201, "hidden_at": nil, "slug": "imported-topic", "is_private": 0, "is_approved": 1, "is_sticky": 0, "is_locked": 0}},
 		"posts": {
 			{"id": 200, "discussion_id": 100, "number": 1, "created_at": "2023-02-01 00:00:00", "user_id": 5, "type": "comment", "content": "<p>Hello <strong>world</strong><script>evil()</script></p>", "edited_at": nil, "edited_user_id": nil, "hidden_at": nil, "hidden_user_id": nil, "is_private": 0, "is_approved": 1},
 			{"id": 201, "discussion_id": 100, "number": 2, "created_at": "2023-02-02 00:00:00", "user_id": 5, "type": "comment", "content": "<p>Reply</p>", "edited_at": nil, "edited_user_id": nil, "hidden_at": nil, "hidden_user_id": nil, "is_private": 0, "is_approved": 1},
@@ -46,8 +48,12 @@ func TestImportPreservesSourceIDsSanitizesAndReplays(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.Tables["users"].Imported != 1 || report.Tables["discussions"].Imported != 1 || report.Tables["posts"].Imported != 2 || report.Tables["post_likes"].Imported != 1 {
+	if report.Tables["users"].Imported != 1 || report.Tables["discussions"].Imported != 1 || report.Tables["posts"].Imported != 2 || report.Tables["post_likes"].Imported != 1 || report.Tables["group_permission"].Imported != 2 {
 		t.Fatalf("unexpected import counts: %+v", report.Tables)
+	}
+	migratedPerms := perm.NewEngine(s)
+	if !migratedPerms.Effective(6, []uint64{perm.GroupMember}, perm.ScopeGlobal, 0, perm.KeyForumThread) || !migratedPerms.Effective(6, []uint64{perm.GroupMember}, perm.ScopeGlobal, 0, perm.KeyForumReply) {
+		t.Fatal("mapped Flarum member permissions were not applied")
 	}
 	if _, ok := users.GetByID(5); !ok {
 		t.Fatal("source user ID was not preserved")

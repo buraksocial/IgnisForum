@@ -71,7 +71,7 @@ func (s *Snapshot) Validate() error {
 			return fmt.Errorf("table %q source count %d does not match exported row count %d", name, table.SourceCount, len(table.Rows))
 		}
 	}
-	for _, name := range []string{"users", "groups", "group_user", "discussions", "posts", "tags", "discussion_tag", "post_likes", "flags", "notifications"} {
+	for _, name := range []string{"users", "groups", "group_user", "group_permission", "discussions", "posts", "tags", "discussion_tag", "post_likes", "flags", "notifications"} {
 		if _, ok := s.Tables[name]; !ok {
 			return fmt.Errorf("snapshot is missing required table %q", name)
 		}

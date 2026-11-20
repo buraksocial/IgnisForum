@@ -69,6 +69,10 @@ func Import(snapshot *Snapshot, digest [32]byte, st *store.Store, repos *repo.Re
 
 	report := &ImportReport{Version: 1, Source: snapshot.Source, SnapshotSHA256: digestHex, Tables: make(map[string]TableCount)}
 	setSourceCounts(snapshot, report)
+	permissions := perm.NewEngine(st)
+	if err := permissions.Bootstrap(); err != nil {
+		return nil, fmt.Errorf("bootstrap staging permissions: %w", err)
+	}
 	userRows, err := DecodeTable[UserRow](snapshot, "users")
 	if err != nil {
 		return nil, err
@@ -78,6 +82,10 @@ func Import(snapshot *Snapshot, digest [32]byte, st *store.Store, repos *repo.Re
 		return nil, err
 	}
 	groupUserRows, err := DecodeTable[GroupUserRow](snapshot, "group_user")
+	if err != nil {
+		return nil, err
+	}
+	groupPermissionRows, err := DecodeTable[GroupPermissionRow](snapshot, "group_permission")
 	if err != nil {
 		return nil, err
 	}
@@ -132,6 +140,30 @@ func Import(snapshot *Snapshot, digest [32]byte, st *store.Store, repos *repo.Re
 			}
 		} else {
 			report.Exceptions = append(report.Exceptions, Exception{Table: "groups", SourceID: group.ID, Reason: "custom Flarum group has no equivalent IgnisForum role"})
+		}
+	}
+	permissionGrants := make(map[uint64]map[string]bool)
+	for _, sourceGrant := range groupPermissionRows {
+		destinationGroup, mappedGroup := groupMap[sourceGrant.GroupID]
+		permissionKey, supported := mapFlarumPermission(sourceGrant.Permission)
+		if !mappedGroup || !supported {
+			report.Exceptions = append(report.Exceptions, Exception{Table: "group_permission", SourceID: sourceGrant.GroupID, Reason: fmt.Sprintf("Flarum permission %q is not represented by IgnisForum", sourceGrant.Permission)})
+			continue
+		}
+		grant := permissionGrants[destinationGroup]
+		if grant == nil {
+			grant = permissions.GetGrant(destinationGroup, perm.ScopeGlobal, 0)
+			if grant == nil {
+				grant = make(map[string]bool)
+			}
+			permissionGrants[destinationGroup] = grant
+		}
+		grant[permissionKey] = true
+		report.Tables["group_permission"] = increment(report.Tables["group_permission"])
+	}
+	for groupID, grant := range permissionGrants {
+		if err := permissions.SetGrant(groupID, perm.ScopeGlobal, 0, grant); err != nil {
+			return nil, fmt.Errorf("apply mapped Flarum permission group %d: %w", groupID, err)
 		}
 	}
 	userGroups := make(map[uint64][]uint64)
@@ -408,14 +440,11 @@ func Import(snapshot *Snapshot, digest [32]byte, st *store.Store, repos *repo.Re
 
 	// These source relations have no current IgnisForum representation. Preserve
 	// their omission in the report instead of silently implying parity.
-	for _, table := range []string{"group_permission", "discussion_user", "post_user", "post_mentions_group", "post_mentions_post", "post_mentions_tag", "post_mentions_user", "tag_user", "notifications"} {
+	for _, table := range []string{"discussion_user", "post_user", "post_mentions_group", "post_mentions_post", "post_mentions_tag", "post_mentions_user", "tag_user", "notifications"} {
 		count := report.Tables[table].Source
 		if count > 0 {
 			report.Exceptions = append(report.Exceptions, Exception{Table: table, Reason: fmt.Sprintf("%d source rows are not represented by IgnisForum", count)})
 		}
-	}
-	if _, ok := snapshot.Tables["group_permission"]; ok {
-		report.Tables["group_permission"] = TableCount{Source: report.Tables["group_permission"].Source}
 	}
 	if _, ok := snapshot.Tables["discussion_user"]; ok {
 		report.Tables["discussion_user"] = TableCount{Source: report.Tables["discussion_user"].Source}
@@ -466,6 +495,19 @@ func mapGroup(name string) (uint64, bool) {
 		return perm.GroupMember, true
 	default:
 		return 0, false
+	}
+}
+
+func mapFlarumPermission(name string) (string, bool) {
+	switch name {
+	case "viewForum":
+		return perm.KeyForumView, true
+	case "startDiscussion":
+		return perm.KeyForumThread, true
+	case "discussion.reply":
+		return perm.KeyForumReply, true
+	default:
+		return "", false
 	}
 }
 

@@ -27,6 +27,11 @@ type GroupUserRow struct {
 	GroupID uint64 `json:"group_id"`
 }
 
+type GroupPermissionRow struct {
+	GroupID    uint64 `json:"group_id"`
+	Permission string `json:"permission"`
+}
+
 type DiscussionRow struct {
 	ID             uint64  `json:"id"`
 	Title          string  `json:"title"`

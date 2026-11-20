@@ -48,9 +48,11 @@ go run ./cmd/flarum-import \
 
 Review every table's source/imported counts and every exception before accepting
 the staging copy. The importer preserves source IDs for users, tags/forums,
-discussions, and posts, and strips active HTML from rendered post content.
-Custom group permissions, read/subscription state, notifications, mention
-relations, and some Flarum visibility semantics do not have equivalent
-IgnisForum features; their omission must be resolved or explicitly accepted.
+discussions, and posts, strips active HTML from rendered post content, and maps
+Flarum `viewForum`, `startDiscussion`, and `discussion.reply` grants to the
+corresponding IgnisForum permissions. Other custom/moderation permissions,
+read/subscription state, notifications, mention relations, and some Flarum
+visibility semantics do not have equivalent IgnisForum features; their omission
+must be resolved or explicitly accepted.
 The report is private because it may contain source identifiers and moderation
 details. This command does not switch traffic or change Flarum.
