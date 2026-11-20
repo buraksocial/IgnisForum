@@ -30,6 +30,8 @@ The old forum and its MariaDB data remain authoritative until cutover acceptance
   enable/disable, audit events, and rollback before treating extensions as complete.
 - [ ] Build a read-only Flarum importer for users, groups, discussions, posts,
   reactions, tags, and uploads; retain source IDs and produce reconciliation reports.
+- [x] Add a repeatable-read, read-only Flarum snapshot exporter with an explicit
+  table allowlist, protected output file, and per-table source counts.
 - [x] Verify Flarum PHP `$2y$` bcrypt hashes and upgrade accounts to Argon2id
   only after successful login; reject unsafe imported Argon2 parameters.
 - [ ] Rehearse backup/restore, migration, load/race/security tests, and rollback;
