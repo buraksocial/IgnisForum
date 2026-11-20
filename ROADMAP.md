@@ -55,6 +55,8 @@ The old forum and its MariaDB data remain authoritative until cutover acceptance
   test English controls without translating user-authored content.
 - [x] Catalog the administration dashboard, reports and permission matrix,
   preserving stored permission keys and form actions.
+- [x] Catalog forum structure management and validation; verify each edit form
+  retains its own parent category selection.
 - [ ] Add a complete interface message catalog (including server errors and
   plugins), locale selection, localized dates/plurals and RTL coverage; verify
   at least 20 production-ready translations end to end.

@@ -97,7 +97,7 @@ func (srv *Server) adminNodes(w http.ResponseWriter, r *http.Request) {
 	if srv.requireAdmin(w, r) == nil {
 		return
 	}
-	d := srv.base(r, "Forum yönetimi", "admin", []Crumb{{URL: "/admin", Title: "Yönetim"}})
+	d := srv.base(r, srv.uiLocale().Text("admin.structure"), "admin", []Crumb{{URL: "/admin", Title: srv.uiLocale().Text("nav.admin")}})
 	tree, err := srv.Repos.Nodes.LoadTree()
 	if err != nil {
 		http.Error(w, "forum tree unavailable", http.StatusInternalServerError)
@@ -128,16 +128,17 @@ func nodeToAdminRow(node *domain.Node) adminNodeRow {
 }
 
 func (srv *Server) saveAdminNode(w http.ResponseWriter, r *http.Request) {
+	locale := srv.uiLocale()
 	me := srv.requireAdmin(w, r)
 	if me == nil {
 		return
 	}
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "invalid form", http.StatusBadRequest)
+		http.Error(w, locale.Text("auth.bad_form"), http.StatusBadRequest)
 		return
 	}
 	if !csrfOK(r, r.FormValue("csrf")) {
-		srv.deny(w, r, "CSRF doğrulaması başarısız.")
+		srv.deny(w, r, locale.Text("auth.bad_csrf"))
 		return
 	}
 	if ok, retry := srv.D.RL.Allow("admin-nodes", strconv.FormatUint(me.ID, 10), 30, time.Minute); !ok {
@@ -150,38 +151,38 @@ func (srv *Server) saveAdminNode(w http.ResponseWriter, r *http.Request) {
 	switch action {
 	case "create-category":
 		if !validNodeForm(title, slug, description) {
-			http.Error(w, "Başlık, slug veya açıklama geçersiz.", http.StatusBadRequest)
+			http.Error(w, locale.Text("node.bad_fields"), http.StatusBadRequest)
 			return
 		}
 		_, err := srv.Repos.Nodes.CreateCategory(title, slug, description)
 		if err != nil {
-			http.Error(w, "Kategori oluşturulamadı.", http.StatusInternalServerError)
+			http.Error(w, locale.Text("node.category_failed"), http.StatusInternalServerError)
 			return
 		}
 	case "create-forum":
 		if !validNodeForm(title, slug, description) {
-			http.Error(w, "Başlık, slug veya açıklama geçersiz.", http.StatusBadRequest)
+			http.Error(w, locale.Text("node.bad_fields"), http.StatusBadRequest)
 			return
 		}
 		parent, err := strconv.ParseUint(r.FormValue("parent_id"), 10, 64)
 		parentNode, ok := srv.Repos.Nodes.Get(parent)
 		if err != nil || !ok || parentNode.Type != domain.TypeCategory {
-			http.Error(w, "Üst kategori geçersiz.", http.StatusBadRequest)
+			http.Error(w, locale.Text("node.bad_parent"), http.StatusBadRequest)
 			return
 		}
 		_, err = srv.Repos.Nodes.CreateForum(parent, title, slug, description, r.FormValue("allow_polls") == "1")
 		if err != nil {
-			http.Error(w, "Forum oluşturulamadı.", http.StatusInternalServerError)
+			http.Error(w, locale.Text("node.forum_failed"), http.StatusInternalServerError)
 			return
 		}
 	case "update":
 		if !validNodeForm(title, slug, description) {
-			http.Error(w, "Başlık, slug veya açıklama geçersiz.", http.StatusBadRequest)
+			http.Error(w, locale.Text("node.bad_fields"), http.StatusBadRequest)
 			return
 		}
 		id, err := strconv.ParseUint(r.FormValue("id"), 10, 64)
 		if err != nil {
-			http.Error(w, "Düğüm kimliği geçersiz.", http.StatusBadRequest)
+			http.Error(w, locale.Text("node.bad_id"), http.StatusBadRequest)
 			return
 		}
 		node, ok := srv.Repos.Nodes.Get(id)
@@ -196,17 +197,17 @@ func (srv *Server) saveAdminNode(w http.ResponseWriter, r *http.Request) {
 			parent, err = strconv.ParseUint(r.FormValue("parent_id"), 10, 64)
 			parentNode, found := srv.Repos.Nodes.Get(parent)
 			if err != nil || !found || parentNode.Type != domain.TypeCategory {
-				http.Error(w, "Üst kategori geçersiz.", http.StatusBadRequest)
+				http.Error(w, locale.Text("node.bad_parent"), http.StatusBadRequest)
 				return
 			}
 		}
 		if err := srv.Repos.Nodes.Update(id, title, slug, description, options); err != nil {
-			http.Error(w, "Düğüm güncellenemedi.", http.StatusInternalServerError)
+			http.Error(w, locale.Text("node.update_failed"), http.StatusInternalServerError)
 			return
 		}
 		if node.ParentID != parent {
 			if err := srv.Repos.Nodes.MoveNode(id, parent); err != nil {
-				http.Error(w, "Düğüm taşınamadı.", http.StatusInternalServerError)
+				http.Error(w, locale.Text("node.move_failed"), http.StatusInternalServerError)
 				return
 			}
 			srv.D.Perms.Invalidate()
@@ -214,15 +215,15 @@ func (srv *Server) saveAdminNode(w http.ResponseWriter, r *http.Request) {
 	case "delete-empty":
 		id, err := strconv.ParseUint(r.FormValue("id"), 10, 64)
 		if err != nil {
-			http.Error(w, "Düğüm kimliği geçersiz.", http.StatusBadRequest)
+			http.Error(w, locale.Text("node.bad_id"), http.StatusBadRequest)
 			return
 		}
 		if err := srv.Repos.Nodes.DeleteEmpty(id); err != nil {
-			http.Error(w, "Yalnızca boş forum veya kategoriler silinebilir.", http.StatusConflict)
+			http.Error(w, locale.Text("node.not_empty"), http.StatusConflict)
 			return
 		}
 	default:
-		http.Error(w, "İşlem geçersiz.", http.StatusBadRequest)
+		http.Error(w, locale.Text("node.bad_action"), http.StatusBadRequest)
 		return
 	}
 	http.Redirect(w, r, "/admin/nodes", http.StatusSeeOther)

@@ -1,41 +1,41 @@
 {{define "admin_nodes"}}
 {{template "header" .}}
-<div class="toolbar"><h1>Forum yapısı</h1><a class="btn" href="/admin">Yönetime dön</a></div>
+<div class="toolbar"><h1>{{.Locale.Text "admin.structure"}}</h1><a class="btn" href="/admin">{{.Locale.Text "admin.back"}}</a></div>
 <div class="admin-grid">
   <form class="panel admin-node-form" method="post" action="/admin/nodes">
-    <h2>Kategori oluştur</h2><input type="hidden" name="csrf" value="{{.CSRF}}"><input type="hidden" name="action" value="create-category">
-    <label>Başlık<input name="title" minlength="2" maxlength="100" required></label>
-    <label>Slug<input name="slug" pattern="[a-z0-9]+(-[a-z0-9]+)*" maxlength="100" required></label>
-    <label>Açıklama<textarea name="description" maxlength="1000" rows="2"></textarea></label>
-    <button class="btn btn-primary">Kategori ekle</button>
+    <h2>{{.Locale.Text "node.create_category"}}</h2><input type="hidden" name="csrf" value="{{.CSRF}}"><input type="hidden" name="action" value="create-category">
+    <label>{{.Locale.Text "node.title"}}<input name="title" minlength="2" maxlength="100" required></label>
+    <label>{{.Locale.Text "node.slug"}}<input name="slug" pattern="[a-z0-9]+(-[a-z0-9]+)*" maxlength="100" required></label>
+    <label>{{.Locale.Text "node.description"}}<textarea name="description" maxlength="1000" rows="2"></textarea></label>
+    <button class="btn btn-primary">{{.Locale.Text "node.add_category"}}</button>
   </form>
   <form class="panel admin-node-form" method="post" action="/admin/nodes">
-    <h2>Forum oluştur</h2><input type="hidden" name="csrf" value="{{.CSRF}}"><input type="hidden" name="action" value="create-forum">
-    <label>Üst kategori<select name="parent_id" required>{{range .AdminNodes}}<option value="{{.ID}}">{{.Title}}</option>{{end}}</select></label>
-    <label>Başlık<input name="title" minlength="2" maxlength="100" required></label>
-    <label>Slug<input name="slug" pattern="[a-z0-9]+(-[a-z0-9]+)*" maxlength="100" required></label>
-    <label>Açıklama<textarea name="description" maxlength="1000" rows="2"></textarea></label>
-    <label class="check-label"><input type="checkbox" name="allow_polls" value="1"> Anketlere izin ver</label>
-    <button class="btn btn-primary">Forum ekle</button>
+    <h2>{{.Locale.Text "node.create_forum"}}</h2><input type="hidden" name="csrf" value="{{.CSRF}}"><input type="hidden" name="action" value="create-forum">
+    <label>{{.Locale.Text "node.parent"}}<select name="parent_id" required>{{range .AdminNodes}}<option value="{{.ID}}">{{.Title}}</option>{{end}}</select></label>
+    <label>{{.Locale.Text "node.title"}}<input name="title" minlength="2" maxlength="100" required></label>
+    <label>{{.Locale.Text "node.slug"}}<input name="slug" pattern="[a-z0-9]+(-[a-z0-9]+)*" maxlength="100" required></label>
+    <label>{{.Locale.Text "node.description"}}<textarea name="description" maxlength="1000" rows="2"></textarea></label>
+    <label class="check-label"><input type="checkbox" name="allow_polls" value="1"> {{.Locale.Text "node.allow_polls"}}</label>
+    <button class="btn btn-primary">{{.Locale.Text "node.add_forum"}}</button>
   </form>
 </div>
-<h2 class="admin-section-title">Mevcut düğümler</h2>
+<h2 class="admin-section-title">{{.Locale.Text "node.existing"}}</h2>
 {{range .AdminNodeRows}}
 <form class="panel admin-node-edit" method="post" action="/admin/nodes">
   <input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="action" value="update"><input type="hidden" name="id" value="{{.ID}}">
-  <div class="admin-node-heading"><strong>{{.Type}} #{{.ID}}</strong>{{if eq .Type "Forum"}}<span class="muted">{{.ThreadCount}} konu · {{.PostCount}} mesaj</span>{{end}}</div>
+  <div class="admin-node-heading"><strong>{{if eq .Type "Forum"}}{{$.Locale.Text "node.forum"}}{{else}}{{$.Locale.Text "node.category"}}{{end}} #{{.ID}}</strong>{{if eq .Type "Forum"}}<span class="muted">{{$.Locale.Text "home.forum_counts" ($.Locale.Count "count.threads" .ThreadCount) ($.Locale.Count "count.posts" .PostCount)}}</span>{{end}}</div>
   <div class="admin-node-fields">
-    <label>Başlık<input name="title" value="{{.Title}}" minlength="2" maxlength="100" required></label>
-    <label>Slug<input name="slug" value="{{.Slug}}" pattern="[a-z0-9]+(-[a-z0-9]+)*" maxlength="100" required></label>
-    <label class="wide">Açıklama<textarea name="description" maxlength="1000" rows="2">{{.Description}}</textarea></label>
-    {{if eq .Type "Forum"}}<label>Üst kategori<select name="parent_id">{{range $.AdminNodes}}<option value="{{.ID}}" {{if eq .ID $.ParentID}}selected{{end}}>{{.Title}}</option>{{end}}</select></label><label class="check-label"><input type="checkbox" name="allow_polls" value="1" {{if .AllowPolls}}checked{{end}}> Anketlere izin ver</label>{{end}}
+    <label>{{$.Locale.Text "node.title"}}<input name="title" value="{{.Title}}" minlength="2" maxlength="100" required></label>
+    <label>{{$.Locale.Text "node.slug"}}<input name="slug" value="{{.Slug}}" pattern="[a-z0-9]+(-[a-z0-9]+)*" maxlength="100" required></label>
+    <label class="wide">{{$.Locale.Text "node.description"}}<textarea name="description" maxlength="1000" rows="2">{{.Description}}</textarea></label>
+    {{$node := .}}{{if eq .Type "Forum"}}<label>{{$.Locale.Text "node.parent"}}<select name="parent_id">{{range $.AdminNodes}}<option value="{{.ID}}" {{if eq .ID $node.ParentID}}selected{{end}}>{{.Title}}</option>{{end}}</select></label><label class="check-label"><input type="checkbox" name="allow_polls" value="1" {{if .AllowPolls}}checked{{end}}> {{$.Locale.Text "node.allow_polls"}}</label>{{end}}
   </div>
-  <div class="admin-node-actions"><button class="btn btn-primary">Kaydet</button></div>
+  <div class="admin-node-actions"><button class="btn btn-primary">{{$.Locale.Text "profile.save"}}</button></div>
 </form>
-<form class="admin-node-delete" method="post" action="/admin/nodes" onsubmit="return confirm('Yalnızca boş düğüm silinir. Devam edilsin mi?')">
+<form class="admin-node-delete" method="post" action="/admin/nodes" data-confirm="{{$.Locale.Text "node.confirm"}}" onsubmit="return confirm(this.dataset.confirm)">
   <input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="action" value="delete-empty"><input type="hidden" name="id" value="{{.ID}}">
-  <button class="btn btn-danger">Boşsa sil</button>
+  <button class="btn btn-danger">{{$.Locale.Text "node.delete"}}</button>
 </form>
-{{else}}<div class="empty">Henüz kategori veya forum yok.</div>{{end}}
+{{else}}<div class="empty">{{.Locale.Text "node.empty"}}</div>{{end}}
 {{template "footer" .}}
 {{end}}

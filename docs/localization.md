@@ -22,6 +22,10 @@ permission matrix now use catalogs, including built-in group names and
 permission labels. Stored permission keys and form values are unchanged.
 The preview does not establish RTL support.
 
+Forum structure management is also cataloged, including its validation errors
+and deletion confirmation. The current parent category is selected separately
+for each forum edit form.
+
 When moving copy into the catalog, use complete phrases rather than joining
 translated fragments. Use positional placeholders for phrases where arguments
 may change order. Keep messages plain text so `html/template` escapes content
