@@ -2,7 +2,10 @@ package flarum
 
 import (
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -28,8 +31,17 @@ func TestImportPreservesSourceIDsSanitizesAndReplays(t *testing.T) {
 		t.Fatal(err)
 	}
 	flarumHash := strings.Replace(string(passwordHash), "$2a$", "$2y$", 1)
+	avatarSource := t.TempDir()
+	avatarBytes, err := base64.StdEncoding.DecodeString("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p6sAAAAASUVORK5CYII=")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(avatarSource, "legacy.png"), avatarBytes, 0600); err != nil {
+		t.Fatal(err)
+	}
+	avatarURL := "https://forum.example.test/assets/avatars/legacy.png"
 	snapshot := testSnapshot(t, map[string][]map[string]any{
-		"users":            {{"id": 5, "username": "legacyuser", "email": "legacy@example.test", "is_email_confirmed": 1, "password": flarumHash, "avatar_url": nil, "joined_at": "2023-01-01 00:00:00", "last_seen_at": nil, "suspended_until": nil, "suspend_reason": nil}},
+		"users":            {{"id": 5, "username": "legacyuser", "email": "legacy@example.test", "is_email_confirmed": 1, "password": flarumHash, "avatar_url": avatarURL, "joined_at": "2023-01-01 00:00:00", "last_seen_at": nil, "suspended_until": nil, "suspend_reason": nil}},
 		"groups":           {{"id": 1, "name_singular": "Admin", "name_plural": "Admins", "color": nil, "icon": nil, "is_hidden": 0, "created_at": nil}, {"id": 3, "name_singular": "Member", "name_plural": "Members", "color": nil, "icon": nil, "is_hidden": 0, "created_at": nil}},
 		"group_user":       {{"user_id": 5, "group_id": 1, "created_at": nil}},
 		"group_permission": {{"group_id": 3, "permission": "startDiscussion"}, {"group_id": 3, "permission": "discussion.reply"}, {"group_id": 3, "permission": "searchUsers"}},
@@ -44,7 +56,8 @@ func TestImportPreservesSourceIDsSanitizesAndReplays(t *testing.T) {
 		"flags":          {}, "notifications": {},
 	})
 	digest := sha256.Sum256([]byte("fixture"))
-	report, err := Import(snapshot, digest, s, r, users)
+	avatarDir := filepath.Join(t.TempDir(), "uploads", "avatars")
+	report, err := Import(snapshot, digest, s, r, users, ImportOptions{AvatarSourceDir: avatarSource, AvatarDir: avatarDir})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,6 +70,13 @@ func TestImportPreservesSourceIDsSanitizesAndReplays(t *testing.T) {
 	}
 	if _, ok := users.GetByID(5); !ok {
 		t.Fatal("source user ID was not preserved")
+	}
+	importedUser, _ := users.GetByID(5)
+	if importedUser.AvatarPath != "u5.png" || report.Tables["avatars"].Imported != 1 {
+		t.Fatalf("avatar import = %q report=%+v", importedUser.AvatarPath, report.Tables["avatars"])
+	}
+	if _, err := os.Stat(filepath.Join(avatarDir, "u5.png")); err != nil {
+		t.Fatalf("imported avatar missing: %v", err)
 	}
 	thread, ok := r.Threads.Get(100)
 	if !ok || thread.FirstPostID != 200 || thread.NodeID != 3 || len(thread.TagIDs) != 1 || thread.TagIDs[0] != 3 {
@@ -81,7 +101,7 @@ func TestImportPreservesSourceIDsSanitizesAndReplays(t *testing.T) {
 		t.Fatal("migrated password was not upgraded on login")
 	}
 
-	if _, err := Import(snapshot, digest, s, r, users); err != nil {
+	if _, err := Import(snapshot, digest, s, r, users, ImportOptions{}); err != nil {
 		t.Fatalf("same snapshot replay: %v", err)
 	}
 	upgraded, _ = users.GetByID(5)
@@ -92,7 +112,7 @@ func TestImportPreservesSourceIDsSanitizesAndReplays(t *testing.T) {
 		t.Fatal("replay duplicated or lost derived index members")
 	}
 	otherDigest := sha256.Sum256([]byte("different snapshot"))
-	if _, err := Import(snapshot, otherDigest, s, r, users); err == nil {
+	if _, err := Import(snapshot, otherDigest, s, r, users, ImportOptions{}); err == nil {
 		t.Fatal("different snapshot was accepted into an initialized staging store")
 	}
 }

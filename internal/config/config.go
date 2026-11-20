@@ -34,6 +34,8 @@ type Config struct {
 	ThemeDir string `yaml:"theme_dir"`
 	// PluginDir contains administrator-installed, validated WebAssembly plugins.
 	PluginDir string `yaml:"plugin_dir"`
+	// AvatarDir contains non-executable uploaded/imported image files.
+	AvatarDir string `yaml:"avatar_dir"`
 }
 
 // Default returns configuration with the fixed architecture defaults applied.
@@ -76,6 +78,9 @@ func Load(path string) (Config, error) {
 	if cfg.CompactionThreshold <= 0 {
 		cfg.CompactionThreshold = 4
 	}
+	if cfg.AvatarDir == "" {
+		cfg.AvatarDir = cfg.DataDir + "/uploads/avatars"
+	}
 	return cfg, nil
 }
 
@@ -98,6 +103,9 @@ func (c *Config) applyEnv() {
 	}
 	if v := os.Getenv("IGNISFORUM_PLUGIN_DIR"); v != "" {
 		c.PluginDir = v
+	}
+	if v := os.Getenv("IGNISFORUM_AVATAR_DIR"); v != "" {
+		c.AvatarDir = v
 	}
 	if v := os.Getenv("IGNISFORUM_MEMTABLE_SIZE"); v != "" {
 		if n, err := strconv.ParseInt(v, 10, 64); err == nil {

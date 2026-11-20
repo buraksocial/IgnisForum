@@ -1,10 +1,19 @@
 package flarum
 
 import (
+	"bytes"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"image"
+	_ "image/gif"
+	_ "image/jpeg"
+	_ "image/png"
+	"io"
+	"net/url"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -42,12 +51,19 @@ type ImportReport struct {
 	CompletedAt    time.Time             `json:"completed_at"`
 }
 
+type ImportOptions struct {
+	// AvatarSourceDir points at Flarum public/assets/avatars. It is read-only.
+	AvatarSourceDir string
+	// AvatarDir is the private destination uploads/avatars directory.
+	AvatarDir string
+}
+
 // Import applies a validated snapshot to an isolated IgnisForum store. Primary
 // IDs for Flarum users, tags, discussions, and posts are retained exactly; the
 // allocator is advanced above their high-water mark before synthetic records
 // (such as a category and reactions) are created. Replaying an identical
 // snapshot is idempotent. A different snapshot requires a fresh staging store.
-func Import(snapshot *Snapshot, digest [32]byte, st *store.Store, repos *repo.Repos, users *auth.UserRepo) (*ImportReport, error) {
+func Import(snapshot *Snapshot, digest [32]byte, st *store.Store, repos *repo.Repos, users *auth.UserRepo, options ImportOptions) (*ImportReport, error) {
 	if snapshot == nil || st == nil || repos == nil || users == nil {
 		return nil, errors.New("import requires snapshot, store, repositories, and user repository")
 	}
@@ -77,6 +93,13 @@ func Import(snapshot *Snapshot, digest [32]byte, st *store.Store, repos *repo.Re
 	if err != nil {
 		return nil, err
 	}
+	avatarSources := 0
+	for _, user := range userRows {
+		if user.AvatarURL != nil && strings.TrimSpace(*user.AvatarURL) != "" {
+			avatarSources++
+		}
+	}
+	report.Tables["avatars"] = TableCount{Source: avatarSources}
 	groupRows, err := DecodeTable[GroupRow](snapshot, "groups")
 	if err != nil {
 		return nil, err
@@ -200,8 +223,15 @@ func Import(snapshot *Snapshot, digest [32]byte, st *store.Store, repos *repo.Re
 			usr.State = 2
 			report.Exceptions = append(report.Exceptions, Exception{Table: "users", SourceID: user.ID, Reason: "suspended account retained disabled"})
 		}
-		if user.AvatarURL != nil {
-			usr.AvatarPath = *user.AvatarURL
+		if user.AvatarURL != nil && strings.TrimSpace(*user.AvatarURL) != "" {
+			if options.AvatarSourceDir == "" || options.AvatarDir == "" {
+				report.Exceptions = append(report.Exceptions, Exception{Table: "avatars", SourceID: user.ID, Reason: "Flarum avatar exists but no source/destination avatar directories were supplied"})
+			} else if avatarName, err := copyAvatar(options.AvatarSourceDir, options.AvatarDir, user.ID, *user.AvatarURL); err != nil {
+				report.Exceptions = append(report.Exceptions, Exception{Table: "avatars", SourceID: user.ID, Reason: "avatar not imported: " + err.Error()})
+			} else {
+				usr.AvatarPath = avatarName
+				report.Tables["avatars"] = increment(report.Tables["avatars"])
+			}
 		}
 		if t, ok := parseOptionalTime(user.JoinedAt); ok {
 			usr.JoinedAt = t
@@ -509,6 +539,98 @@ func mapFlarumPermission(name string) (string, bool) {
 	default:
 		return "", false
 	}
+}
+
+func copyAvatar(sourceDir, targetDir string, userID uint64, sourceName string) (string, error) {
+	if parsed, err := url.Parse(sourceName); err == nil && parsed.Path != "" {
+		sourceName = filepath.Base(parsed.Path)
+	}
+	if userID == 0 || sourceName == "" || filepath.Base(sourceName) != sourceName || strings.ContainsAny(sourceName, "/\\\x00") || len(sourceName) > 255 {
+		return "", errors.New("unsafe source filename")
+	}
+	sourceInfo, err := os.Lstat(sourceDir)
+	if err != nil || !sourceInfo.IsDir() || sourceInfo.Mode()&os.ModeSymlink != 0 {
+		return "", errors.New("avatar source directory is unavailable or unsafe")
+	}
+	sourcePath := filepath.Join(sourceDir, sourceName)
+	fileInfo, err := os.Lstat(sourcePath)
+	if err != nil || !fileInfo.Mode().IsRegular() || fileInfo.Size() < 1 || fileInfo.Size() > 8<<20 {
+		return "", errors.New("avatar file is missing, not regular, or exceeds 8 MiB")
+	}
+	f, err := os.Open(sourcePath)
+	if err != nil {
+		return "", err
+	}
+	openedInfo, err := f.Stat()
+	if err != nil || !os.SameFile(fileInfo, openedInfo) || !openedInfo.Mode().IsRegular() {
+		f.Close()
+		return "", errors.New("avatar changed while opening")
+	}
+	data, err := io.ReadAll(io.LimitReader(f, (8<<20)+1))
+	closeErr := f.Close()
+	if err != nil {
+		return "", err
+	}
+	if closeErr != nil {
+		return "", closeErr
+	}
+	if len(data) == 0 || len(data) > 8<<20 {
+		return "", errors.New("avatar is empty or exceeds 8 MiB")
+	}
+	config, format, err := image.DecodeConfig(bytes.NewReader(data))
+	if err != nil || config.Width < 1 || config.Height < 1 || config.Width > 4096 || config.Height > 4096 || int64(config.Width)*int64(config.Height) > 16_000_000 {
+		return "", errors.New("avatar is not a supported image or dimensions exceed limits")
+	}
+	extension := map[string]string{"png": ".png", "jpeg": ".jpg", "gif": ".gif"}[format]
+	if extension == "" {
+		return "", errors.New("avatar image format is not supported")
+	}
+	if err := os.MkdirAll(targetDir, 0700); err != nil {
+		return "", err
+	}
+	targetInfo, err := os.Lstat(targetDir)
+	if err != nil || !targetInfo.IsDir() || targetInfo.Mode()&os.ModeSymlink != 0 {
+		return "", errors.New("avatar destination directory is unsafe")
+	}
+	if err := os.Chmod(targetDir, 0700); err != nil {
+		return "", err
+	}
+	name := fmt.Sprintf("u%d%s", userID, extension)
+	targetPath := filepath.Join(targetDir, name)
+	if existing, err := os.Lstat(targetPath); err == nil {
+		if !existing.Mode().IsRegular() {
+			return "", errors.New("existing avatar destination is not a regular file")
+		}
+		old, err := os.ReadFile(targetPath)
+		if err != nil {
+			return "", err
+		}
+		if !bytes.Equal(old, data) {
+			return "", errors.New("existing avatar content differs from source")
+		}
+		return name, nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return "", err
+	}
+	out, err := os.OpenFile(targetPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	if err != nil {
+		return "", err
+	}
+	if _, err := out.Write(data); err != nil {
+		out.Close()
+		os.Remove(targetPath)
+		return "", err
+	}
+	if err := out.Sync(); err != nil {
+		out.Close()
+		os.Remove(targetPath)
+		return "", err
+	}
+	if err := out.Close(); err != nil {
+		os.Remove(targetPath)
+		return "", err
+	}
+	return name, nil
 }
 
 func maxSourceID(users []UserRow, groups []GroupRow, tags []TagRow, discussions []DiscussionRow, posts []PostRow, flags []FlagRow) uint64 {

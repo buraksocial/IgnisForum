@@ -1,11 +1,14 @@
 package web
 
 import (
+	"context"
 	"io"
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -15,6 +18,7 @@ import (
 	"github.com/buraksocial/IgnisForum/internal/perm"
 	"github.com/buraksocial/IgnisForum/internal/repo"
 	"github.com/buraksocial/IgnisForum/internal/store"
+	"github.com/go-chi/chi/v5"
 )
 
 // newTestServer builds the full M2 stack on a real engine (t.TempDir — mocks
@@ -91,6 +95,32 @@ func noRedirectClient() *http.Client {
 		CheckRedirect: func(*http.Request, []*http.Request) error {
 			return http.ErrUseLastResponse
 		},
+	}
+}
+
+func TestAvatarFileServesOnlySafeImageNames(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "u42.png"), []byte("png bytes"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	srv := &Server{D: Deps{AvatarDir: dir}}
+	serve := func(name string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(http.MethodGet, "/uploads/avatars/"+name, nil)
+		rctx := chi.NewRouteContext()
+		rctx.URLParams.Add("filename", name)
+		r = r.WithContext(context.WithValue(r.Context(), chi.RouteCtxKey, rctx))
+		w := httptest.NewRecorder()
+		srv.avatarFile(w, r)
+		return w
+	}
+	w := serve("u42.png")
+	if w.Code != http.StatusOK || w.Header().Get("Content-Type") != "image/png" || w.Header().Get("X-Content-Type-Options") != "nosniff" || w.Body.String() != "png bytes" {
+		t.Fatalf("avatar response: status=%d headers=%v body=%q", w.Code, w.Header(), w.Body.String())
+	}
+	for _, name := range []string{"../u42.png", "u42.svg", "u00.png"} {
+		if got := serve(name).Code; got != http.StatusNotFound {
+			t.Errorf("avatar %q status=%d, want 404", name, got)
+		}
 	}
 }
 

@@ -31,7 +31,9 @@ The old forum and its MariaDB data remain authoritative until cutover acceptance
 - [x] Build an isolated read-only Flarum staging importer for users, groups,
   discussions, posts, reactions, and tags; retain source IDs and produce
   per-table reconciliation reports with explicit unsupported-data exceptions.
-- [ ] Add uploads/attachments migration and close the remaining Flarum permission,
+- [x] Import validated Flarum profile avatars into isolated staging, serve them
+  through a constrained image route, and include them in offline backup/restore.
+- [ ] Add post uploads/attachments migration and close the remaining Flarum permission,
   read/subscription, and visibility-semantic gaps before migration acceptance.
 - [x] Add a repeatable-read, read-only Flarum snapshot exporter with an explicit
   table allowlist, protected output file, and per-table source counts.

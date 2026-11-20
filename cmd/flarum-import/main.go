@@ -21,6 +21,7 @@ func main() {
 	configPath := flag.String("config", "/etc/ignisforum/config.yaml", "IgnisForum config used for store sizing and production-path safety")
 	snapshotPath := flag.String("snapshot", "", "protected Flarum JSON snapshot")
 	dataDir := flag.String("data-dir", "", "new isolated staging data directory (required; never the live data directory)")
+	avatarSource := flag.String("avatar-source", "", "read-only Flarum public/assets/avatars directory")
 	reportPath := flag.String("report", "", "new path for the protected JSON reconciliation report (required)")
 	flag.Parse()
 	if *snapshotPath == "" || *dataDir == "" || *reportPath == "" {
@@ -86,7 +87,7 @@ func main() {
 	forumRepos := repo.New(st)
 	authService := auth.NewService(st)
 	userRepo := auth.NewUserRepo(authService, auth.NewRateLimiter(st))
-	report, importErr := flarum.Import(snapshot, digest, st, forumRepos, userRepo)
+	report, importErr := flarum.Import(snapshot, digest, st, forumRepos, userRepo, flarum.ImportOptions{AvatarSourceDir: *avatarSource, AvatarDir: filepath.Join(stagingReal, "uploads", "avatars")})
 	closeStoreErr := st.Close()
 	if importErr != nil {
 		fatal(importErr)

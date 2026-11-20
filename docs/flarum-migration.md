@@ -57,6 +57,24 @@ must be resolved or explicitly accepted.
 The report is private because it may contain source identifiers and moderation
 details. This command does not switch traffic or change Flarum.
 
+If the source Flarum avatar directory is available, pass it read-only to the
+importer; validated PNG/JPEG/GIF files are copied into the isolated staging
+data directory and referenced by generated, non-user-controlled filenames:
+
+```sh
+go run ./cmd/flarum-import -config /etc/ignisforum/config.yaml \
+  -snapshot /var/lib/ignisforum/migration/flarum-snapshot.json \
+  -data-dir /var/lib/ignisforum/migration/staging-with-avatars \
+  -avatar-source /var/www/vhosts/tutorial.com.tr/forum.tutorial.com.tr/public/assets/avatars \
+  -report /var/lib/ignisforum/migration/avatar-import-report.json
+```
+
+Avatar import failures are listed as reconciliation exceptions, not silently
+ignored. IgnisForum serves these files from its configured private avatar
+directory (default: `<data_dir>/uploads/avatars`) with fixed image content
+types and `nosniff` protection. The offline backup/restore format includes
+this avatar directory.
+
 ## Offline backup and restore rehearsal
 
 The engine is single-writer and stores primary records in SSTables/WAL; forum

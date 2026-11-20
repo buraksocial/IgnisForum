@@ -26,6 +26,13 @@ func TestBackupRestoreReopensDatabaseAndRebuildsFromPrimary(t *testing.T) {
 	if err := s.Close(); err != nil {
 		t.Fatal(err)
 	}
+	avatarPath := filepath.Join(source, "uploads", "avatars", "u42.png")
+	if err := os.MkdirAll(filepath.Dir(avatarPath), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(avatarPath, []byte("test avatar bytes"), 0600); err != nil {
+		t.Fatal(err)
+	}
 
 	archive := filepath.Join(root, "backup", "forum.tar.gz")
 	manifest, err := Create(source, archive)
@@ -48,6 +55,10 @@ func TestBackupRestoreReopensDatabaseAndRebuildsFromPrimary(t *testing.T) {
 	destination := filepath.Join(root, "restored")
 	if _, err := Restore(archive, destination); err != nil {
 		t.Fatal(err)
+	}
+	avatarData, err := os.ReadFile(filepath.Join(destination, "uploads", "avatars", "u42.png"))
+	if err != nil || string(avatarData) != "test avatar bytes" {
+		t.Fatalf("restored avatar data=%q err=%v", avatarData, err)
 	}
 	restored, err := store.Open(store.OpenConfig{DataDir: destination, CacheSize: 4 << 20, MemtableSize: 1 << 20})
 	if err != nil {

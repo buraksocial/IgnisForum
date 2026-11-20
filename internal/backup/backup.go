@@ -21,10 +21,12 @@ import (
 const (
 	manifestVersion = 1
 	maxDataFileSize = int64(1 << 40)
+	maxTotalSize    = int64(1 << 40)
 	maxBackupFiles  = 1_000_000
 )
 
 var sstableName = regexp.MustCompile(`^sstable_[0-9]{16}\.db$`)
+var avatarName = regexp.MustCompile(`^u[0-9]+\.(png|jpg|gif)$`)
 
 type Manifest struct {
 	Version       int       `json:"version"`
@@ -56,10 +58,35 @@ func Create(dataDir, archivePath string) (*Manifest, error) {
 	if err != nil {
 		return nil, err
 	}
-	files := make([]os.DirEntry, 0, len(entries))
+	files := make([]string, 0, len(entries))
 	for _, entry := range entries {
 		if entry.Name() == ".ignisforum.lock" {
 			return nil, errors.New("data directory became locked during backup preparation")
+		}
+		if entry.Name() == "uploads" {
+			if !entry.IsDir() || entry.Type()&os.ModeSymlink != 0 {
+				return nil, errors.New("uploads must be a regular directory")
+			}
+			uploadEntries, err := os.ReadDir(filepath.Join(source, "uploads"))
+			if err != nil || len(uploadEntries) != 1 || uploadEntries[0].Name() != "avatars" || !uploadEntries[0].IsDir() || uploadEntries[0].Type()&os.ModeSymlink != 0 {
+				return nil, errors.New("uploads may contain only a regular avatars directory")
+			}
+			avatars := filepath.Join(source, "uploads", "avatars")
+			avatarInfo, err := os.Lstat(avatars)
+			if err != nil || !avatarInfo.IsDir() || avatarInfo.Mode()&os.ModeSymlink != 0 {
+				return nil, errors.New("uploads may contain only a regular avatars directory")
+			}
+			avatarEntries, err := os.ReadDir(avatars)
+			if err != nil {
+				return nil, err
+			}
+			for _, avatar := range avatarEntries {
+				if !avatarName.MatchString(avatar.Name()) || !avatar.Type().IsRegular() {
+					return nil, fmt.Errorf("unsupported avatar entry %q", avatar.Name())
+				}
+				files = append(files, filepath.Join("uploads", "avatars", avatar.Name()))
+			}
+			continue
 		}
 		if entry.Name() != "wal.log" && !sstableName.MatchString(entry.Name()) {
 			return nil, fmt.Errorf("unsupported data directory entry %q; refusing incomplete backup", entry.Name())
@@ -67,13 +94,21 @@ func Create(dataDir, archivePath string) (*Manifest, error) {
 		if !entry.Type().IsRegular() {
 			return nil, fmt.Errorf("data directory entry %q is not a regular file", entry.Name())
 		}
-		files = append(files, entry)
+		files = append(files, entry.Name())
 	}
 	if len(files) == 0 {
 		return nil, errors.New("data directory contains no database files")
 	}
 	if len(files) > maxBackupFiles {
 		return nil, errors.New("data directory has an unreasonable number of files")
+	}
+	var totalSize int64
+	for _, relPath := range files {
+		info, err := os.Stat(filepath.Join(source, relPath))
+		if err != nil || info.Size() < 0 || info.Size() > maxTotalSize-totalSize {
+			return nil, errors.New("data directory exceeds backup size limit or changed during scanning")
+		}
+		totalSize += info.Size()
 	}
 
 	archivePath, err = filepath.Abs(archivePath)
@@ -107,14 +142,14 @@ func Create(dataDir, archivePath string) (*Manifest, error) {
 
 	gw := gzip.NewWriter(tmp)
 	tw := tar.NewWriter(gw)
-	for _, entry := range files {
-		path := filepath.Join(source, entry.Name())
+	for _, relPath := range files {
+		path := filepath.Join(source, relPath)
 		before, err := os.Stat(path)
 		if err != nil || !before.Mode().IsRegular() || before.Size() > maxDataFileSize {
 			tw.Close()
 			gw.Close()
 			tmp.Close()
-			return nil, fmt.Errorf("invalid database file %q", entry.Name())
+			return nil, fmt.Errorf("invalid data file %q", relPath)
 		}
 		file, err := os.Open(path)
 		if err != nil {
@@ -129,9 +164,9 @@ func Create(dataDir, archivePath string) (*Manifest, error) {
 			tw.Close()
 			gw.Close()
 			tmp.Close()
-			return nil, fmt.Errorf("database file %q changed during backup preparation", entry.Name())
+			return nil, fmt.Errorf("data file %q changed during backup preparation", relPath)
 		}
-		header := &tar.Header{Name: entry.Name(), Mode: 0600, Size: before.Size(), ModTime: before.ModTime().UTC(), Typeflag: tar.TypeReg, Format: tar.FormatUSTAR}
+		header := &tar.Header{Name: filepath.ToSlash(relPath), Mode: 0600, Size: before.Size(), ModTime: before.ModTime().UTC(), Typeflag: tar.TypeReg, Format: tar.FormatUSTAR}
 		if err := tw.WriteHeader(header); err != nil {
 			file.Close()
 			tw.Close()
@@ -144,7 +179,7 @@ func Create(dataDir, archivePath string) (*Manifest, error) {
 			tw.Close()
 			gw.Close()
 			tmp.Close()
-			return nil, fmt.Errorf("copy database file %q: %w", entry.Name(), err)
+			return nil, fmt.Errorf("copy data file %q: %w", relPath, err)
 		}
 		if err := file.Close(); err != nil {
 			tw.Close()
@@ -157,7 +192,7 @@ func Create(dataDir, archivePath string) (*Manifest, error) {
 			tw.Close()
 			gw.Close()
 			tmp.Close()
-			return nil, fmt.Errorf("database file %q changed during backup", entry.Name())
+			return nil, fmt.Errorf("data file %q changed during backup", relPath)
 		}
 	}
 	if err := tw.Close(); err != nil {
@@ -263,6 +298,7 @@ func Restore(archivePath, destination string) (*Manifest, error) {
 	}
 	tr := tar.NewReader(gz)
 	seen := make(map[string]bool)
+	var totalSize int64
 	for {
 		header, err := tr.Next()
 		if errors.Is(err, io.EOF) {
@@ -273,7 +309,7 @@ func Restore(archivePath, destination string) (*Manifest, error) {
 			return nil, fmt.Errorf("read backup archive: %w", err)
 		}
 		name := header.Name
-		if name != filepath.Base(name) || name == "." || name == ".." || (name != "wal.log" && !sstableName.MatchString(name)) {
+		if strings.Contains(name, "\\") || strings.HasPrefix(name, "/") || strings.Contains(name, "../") || name == ".." || (name != "wal.log" && !sstableName.MatchString(name) && !validAvatarArchivePath(name)) {
 			gz.Close()
 			return nil, fmt.Errorf("unsafe or unsupported backup entry %q", name)
 		}
@@ -281,8 +317,20 @@ func Restore(archivePath, destination string) (*Manifest, error) {
 			gz.Close()
 			return nil, fmt.Errorf("invalid backup entry %q", name)
 		}
+		if header.Size > maxTotalSize-totalSize {
+			gz.Close()
+			return nil, errors.New("backup exceeds total uncompressed size limit")
+		}
+		totalSize += header.Size
 		seen[name] = true
-		file, err := os.OpenFile(filepath.Join(tmpDir, name), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+		destination := filepath.Join(tmpDir, filepath.FromSlash(name))
+		if validAvatarArchivePath(name) {
+			if err := os.MkdirAll(filepath.Dir(destination), 0700); err != nil {
+				gz.Close()
+				return nil, err
+			}
+		}
+		file, err := os.OpenFile(destination, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
 		if err != nil {
 			gz.Close()
 			return nil, err
@@ -323,6 +371,10 @@ func Restore(archivePath, destination string) (*Manifest, error) {
 		return nil, err
 	}
 	return &manifest, nil
+}
+
+func validAvatarArchivePath(name string) bool {
+	return strings.HasPrefix(name, "uploads/avatars/") && avatarName.MatchString(strings.TrimPrefix(name, "uploads/avatars/"))
 }
 
 func writeManifest(path string, manifest *Manifest) error {

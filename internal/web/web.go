@@ -19,6 +19,8 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -40,13 +42,14 @@ var Version = "dev"
 
 // Deps carries the M2 services into the web layer.
 type Deps struct {
-	Auth     *auth.Service
-	Users    *auth.UserRepo
-	RL       *auth.RateLimiter
-	Perms    *perm.Engine
-	Secure   bool // cookies carry the Secure flag (behind TLS, M6)
-	ThemeDir string
-	Plugins  *plugin.Manager
+	Auth      *auth.Service
+	Users     *auth.UserRepo
+	RL        *auth.RateLimiter
+	Perms     *perm.Engine
+	Secure    bool // cookies carry the Secure flag (behind TLS, M6)
+	ThemeDir  string
+	AvatarDir string
+	Plugins   *plugin.Manager
 }
 
 // Server holds shared dependencies for all handlers.
@@ -87,6 +90,7 @@ func buildRouter(srv *Server) chi.Router {
 	rr.Use(srv.sessionMW) // resolves ignis_sid → context (one KV Get per request)
 
 	rr.Get("/healthz", srv.healthz)
+	rr.Get("/uploads/avatars/{filename}", srv.avatarFile)
 	rr.Get("/s/{theme}/style.css", srv.serveStyle)
 	rr.Get("/theme/{themeID}", srv.selectTheme)
 
@@ -290,6 +294,7 @@ type postRow struct {
 	Number    int
 	UserID    uint64
 	Author    string
+	AvatarURL string
 	Rank      string
 	Date      time.Time
 	Rendered  template.HTML
@@ -628,14 +633,31 @@ func (srv *Server) thread(w http.ResponseWriter, r *http.Request) {
 	postIDs := srv.Repos.Posts.List(threadID, offset, pageSize)
 
 	rows := make([]postRow, 0, len(postIDs))
+	userCache := make(map[uint64]*domain.User)
 	for i, pid := range postIDs {
 		post, ok := srv.Repos.Posts.Get(pid)
 		if !ok || post.State == 2 {
 			continue
 		}
+		author, avatarURL := "Misafir", ""
+		if post.UserID != 0 {
+			user, found := userCache[post.UserID]
+			if !found && srv.D.Users != nil {
+				user, _ = srv.D.Users.GetByID(post.UserID)
+				userCache[post.UserID] = user
+			}
+			if user != nil {
+				author = user.Username
+				if validAvatarName(user.AvatarPath) {
+					avatarURL = "/uploads/avatars/" + user.AvatarPath
+				}
+			} else {
+				author = "kullanıcı #" + itoa(post.UserID)
+			}
+		}
 		row := postRow{
 			ID: post.ID, Number: offset + i + 1, UserID: post.UserID,
-			Author: srv.username(post.UserID), Rank: "Üye", Date: post.Date,
+			Author: author, AvatarURL: avatarURL, Rank: "Üye", Date: post.Date,
 			Rendered: template.HTML(post.MessageRendered),
 			Edited:   post.EditCount > 0,
 			Raw:      post.MessageRaw,
@@ -1161,6 +1183,59 @@ func (srv *Server) username(uid uint64) string {
 		return name
 	}
 	return "kullanıcı #" + itoa(uid)
+}
+
+func (srv *Server) avatarFile(w http.ResponseWriter, r *http.Request) {
+	name := chi.URLParam(r, "filename")
+	if srv.D.AvatarDir == "" || !validAvatarName(name) || filepath.Base(name) != name {
+		http.NotFound(w, r)
+		return
+	}
+	path := filepath.Join(srv.D.AvatarDir, name)
+	before, err := os.Lstat(path)
+	if err != nil || !before.Mode().IsRegular() || before.Mode()&os.ModeSymlink != 0 || before.Size() > 8<<20 {
+		http.NotFound(w, r)
+		return
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil || !os.SameFile(before, info) || !info.Mode().IsRegular() || info.Size() > 8<<20 {
+		http.NotFound(w, r)
+		return
+	}
+	contentType := map[string]string{".png": "image/png", ".jpg": "image/jpeg", ".gif": "image/gif"}[filepath.Ext(name)]
+	if contentType == "" {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+	http.ServeContent(w, r, name, info.ModTime(), file)
+}
+
+func validAvatarName(name string) bool {
+	if len(name) < 6 || len(name) > 64 || name[0] != 'u' {
+		return false
+	}
+	dot := strings.LastIndexByte(name, '.')
+	if dot < 2 {
+		return false
+	}
+	if _, err := strconv.ParseUint(name[1:dot], 10, 64); err != nil {
+		return false
+	}
+	switch name[dot:] {
+	case ".png", ".jpg", ".gif":
+		return true
+	default:
+		return false
+	}
 }
 
 func (srv *Server) nodeName(id uint64) string {

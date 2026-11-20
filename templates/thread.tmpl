@@ -12,7 +12,7 @@
 {{$post := .}}
 <article class="post-block" id="post-{{.ID}}">
   <div class="post-head">
-    <div class="post-avatar">{{first .Author}}</div>
+    <div class="post-avatar">{{if .AvatarURL}}<img src="{{.AvatarURL}}" alt="{{.Author}}" loading="lazy">{{else}}{{first .Author}}{{end}}</div>
     <div class="post-who">
       <span class="post-username">{{.Author}}</span>
       <div class="post-rank">{{.Rank}}</div>
