@@ -166,6 +166,7 @@ type Prefix struct {
 
 // Tag is a free-form thread label with its own threads index.
 type Tag struct {
+	ID          uint64 `json:"id"`
 	Slug        string `json:"slug"`
 	Title       string `json:"title"`
 	ThreadCount int    `json:"thread_count"`

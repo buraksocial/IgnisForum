@@ -118,6 +118,9 @@ func (t *ThreadRepo) indexThread(thread *domain.Thread) {
 	s.ZAddIdx(nodeThreadsViewsIdx(thread.NodeID), float64(thread.ViewCount), thread.ID)
 	s.ZAddIdx(IdxLatestThreads, ts(lp.T), thread.ID)
 	s.ZAddIdx(userThreadsIdx(thread.UserID), ts(thread.Date), thread.ID)
+	for _, tagID := range thread.TagIDs {
+		s.ZAddIdx(tagThreadsIdx(tagID), ts(thread.Date), thread.ID)
+	}
 }
 
 // BumpThread updates thread counters after a new reply (called by PostRepo).

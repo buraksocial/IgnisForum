@@ -100,6 +100,7 @@ func buildRouter(srv *Server) chi.Router {
 	rr.Get("/search", srv.search)
 	rr.Get("/members/{userID}", srv.memberProfile)
 	rr.Post("/members/{userID}/profile", srv.saveMemberProfile)
+	rr.Get("/tags/{slug}", srv.tagThreads)
 	rr.Get("/f/{nodeID}", srv.forum)
 	rr.Get("/f/{nodeID}/new", srv.newThreadForm)
 	rr.Post("/f/{nodeID}/new", srv.createThread)
@@ -238,6 +239,7 @@ type pageData struct {
 	Profile             *domain.User
 	ProfilePosts        []profilePostRow
 	ProfilePostCount    int
+	Tags                []tagView
 }
 
 type profilePostRow struct {
@@ -245,6 +247,10 @@ type profilePostRow struct {
 	ThreadTitle string
 	Date        time.Time
 	Message     template.HTML
+}
+type tagView struct {
+	Slug, Title string
+	ThreadCount int
 }
 
 type adminNodeOption struct {
@@ -649,6 +655,11 @@ func (srv *Server) thread(w http.ResponseWriter, r *http.Request) {
 	page := parseInt(r, "p", 1)
 	offset := (page - 1) * pageSize
 	postIDs := srv.Repos.Posts.List(threadID, offset, pageSize)
+	for _, tagID := range th.TagIDs {
+		if tag, found := srv.Repos.Tags.ByID(tagID); found {
+			d.Tags = append(d.Tags, tagView{Slug: tag.Slug, Title: tag.Title, ThreadCount: tag.ThreadCount})
+		}
+	}
 
 	rows := make([]postRow, 0, len(postIDs))
 	userCache := make(map[uint64]*domain.User)
@@ -1039,6 +1050,20 @@ func (srv *Server) createThread(w http.ResponseWriter, r *http.Request) {
 	}
 	title := strings.TrimSpace(r.FormValue("title"))
 	msg := strings.TrimSpace(r.FormValue("message"))
+	var tagNames []string
+	for _, rawTags := range r.Form["tags"] {
+		tagNames = append(tagNames, strings.Split(rawTags, ",")...)
+	}
+	if len(tagNames) > 5 {
+		http.Error(w, "Bir konuya en fazla 5 etiket eklenebilir.", http.StatusBadRequest)
+		return
+	}
+	for _, tagName := range tagNames {
+		if utf8.RuneCountInString(strings.TrimSpace(tagName)) > 32 {
+			http.Error(w, "Etiketler en fazla 32 karakter olabilir.", http.StatusBadRequest)
+			return
+		}
+	}
 	if title == "" || msg == "" {
 		http.Error(w, "başlık ve mesaj gerekli", http.StatusBadRequest)
 		return
@@ -1048,7 +1073,32 @@ func (srv *Server) createThread(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	if err := srv.Repos.Tags.ApplyNames(th.ID, tagNames); err != nil {
+		http.Error(w, "Etiketler kaydedilemedi.", http.StatusInternalServerError)
+		return
+	}
 	http.Redirect(w, r, "/t/"+itoa(th.ID), http.StatusSeeOther)
+}
+
+func (srv *Server) tagThreads(w http.ResponseWriter, r *http.Request) {
+	slug := chi.URLParam(r, "slug")
+	tag, ok := srv.Repos.Tags.BySlug(slug)
+	if !ok {
+		srv.notFound(w, r)
+		return
+	}
+	d := srv.base(r, "Etiket: "+tag.Title, "latest", []Crumb{{Title: "Etiketler"}, {Title: tag.Title}})
+	d.Tags = []tagView{{Slug: tag.Slug, Title: tag.Title, ThreadCount: tag.ThreadCount}}
+	var visibleIDs []uint64
+	for _, id := range srv.Repos.Tags.List(slug, 0, 100) {
+		thread, found := srv.Repos.Threads.Get(id)
+		if !found || thread.Status == domain.ThreadDeleted || thread.DiscussionState != 0 || !srv.can(r, d.Me, perm.ScopeNode, thread.NodeID, perm.KeyForumView) {
+			continue
+		}
+		visibleIDs = append(visibleIDs, id)
+	}
+	d.LatestThreads = srv.threadsFromIDs(visibleIDs, d.Me)
+	srv.render(w, "tag", d)
 }
 
 func (srv *Server) memberProfile(w http.ResponseWriter, r *http.Request) {

@@ -12,6 +12,7 @@
 <p class="muted" style="font-size:13px">
   {{.Thread.PostCount}} mesaj · {{.Thread.ViewCount}} görüntülenme
 </p>
+{{if .Tags}}<div class="tag-list">{{range .Tags}}<a class="tag" href="/tags/{{.Slug}}">{{.Title}}</a>{{end}}</div>{{end}}
 {{range .Posts}}
 {{$post := .}}
 <article class="post-block" id="post-{{.ID}}">
@@ -87,6 +88,7 @@
   <input type="hidden" name="csrf" value="{{.CSRF}}">
   <div class="form-row"><label>Başlık</label><input type="text" name="title" required maxlength="160" placeholder="Konu başlığı"></div>
   <div class="form-row"><label>Mesaj</label><textarea name="message" rows="8" required placeholder="[b]kalın[/b], [url=https://example.com]bağlantı[/url], [code]kod[/code] desteklenir"></textarea></div>
+  <div class="form-row"><label>Etiketler <small>(virgülle ayırın, en fazla 5)</small></label><input type="text" name="tags" maxlength="200" placeholder="go, performans, soru"></div>
   <div class="form-row"><button type="submit" class="btn btn-primary">Konuyu Aç</button> <a class="btn" href="/f/{{.Node.ID}}">İptal</a></div>
 </form>
 {{template "footer" .}}

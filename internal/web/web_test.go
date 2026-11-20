@@ -268,6 +268,30 @@ func TestMemberProfileAndSelfEdit(t *testing.T) {
 	}
 }
 
+func TestThreadTagsAreCreatedAndBrowsable(t *testing.T) {
+	ts, _, repos, _, _ := newTestServer(t)
+	member := register(t, ts, "tagcreator")
+	csrf := mustFindCSRF(t, member, ts.URL+"/f/2/new")
+	response := formPost(t, member, ts.URL+"/f/2/new", url.Values{
+		"csrf": {csrf}, "title": {"Tagged topic"}, "message": {"tag body"}, "tags": {"Go, performans"},
+	})
+	if response.StatusCode != http.StatusSeeOther {
+		t.Fatalf("create thread status=%d", response.StatusCode)
+	}
+	tag, ok := repos.Tags.BySlug("go")
+	if !ok || tag.ThreadCount != 1 {
+		t.Fatalf("tag state=%+v found=%v", tag, ok)
+	}
+	code, body, _ := getBody(t, member, ts.URL+"/tags/go")
+	if code != http.StatusOK || !strings.Contains(body, "Tagged topic") {
+		t.Fatalf("tag listing status=%d body=%s", code, body)
+	}
+	_, threadBody, _ := getBody(t, member, ts.URL+"/t/"+itoa(repos.Tags.List("go", 0, 1)[0]))
+	if !strings.Contains(threadBody, `href="/tags/go"`) {
+		t.Fatalf("thread tag link missing: %s", threadBody)
+	}
+}
+
 // jarNoRedirect: keeps cookies (so the session sticks) but reports the first
 // redirect response instead of following it — for asserting 303/302 flows.
 func jarNoRedirect() *http.Client {

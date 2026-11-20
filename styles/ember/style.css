@@ -17,3 +17,10 @@
   --color-typ: #f3e9e1;
   --color-typ-tone: #b8a79a;
 }
+
+.tag-list { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 14px; }
+.tag { display: inline-block; border: 1px solid var(--color-brd); border-radius: 999px; padding: 2px 9px; color: var(--color-typ-tone); font-size: 12px; text-decoration: none; }
+.tag:hover { color: var(--color-brand); border-color: var(--color-brand); }
+.thread-row { padding: 14px 16px; border-bottom: 1px solid var(--color-brd); }
+.thread-row h2 { margin: 0 0 5px; font-size: 16px; }
+.thread-row p { margin: 0; }

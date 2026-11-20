@@ -1,0 +1,11 @@
+{{define "tag"}}
+{{template "header" .}}
+<div class="toolbar"><h1>Etiket: {{(index .Tags 0).Title}}</h1><span>{{(index .Tags 0).ThreadCount}} konu</span></div>
+{{if .LatestThreads}}
+<div class="thread-list">{{range .LatestThreads}}<article class="thread-row">
+  <h2><a href="/t/{{.ID}}">{{.Title}}</a></h2>
+  <p class="muted">{{.Author}} · {{.ReplyCount}} yanıt · {{ago .Date}}</p>
+</article>{{end}}</div>
+{{else}}<p class="empty">Bu etikette görüntülenebilir konu yok.</p>{{end}}
+{{template "footer" .}}
+{{end}}

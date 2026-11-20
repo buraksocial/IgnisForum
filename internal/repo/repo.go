@@ -21,6 +21,7 @@ type Repos struct {
 	Threads    *ThreadRepo
 	Posts      *PostRepo
 	Reactions  *ReactionRepo
+	Tags       *TagRepo
 	reactionMu sync.Mutex
 
 	// Hooks is the store.RebuildHooks set; the server passes it to
@@ -36,11 +37,13 @@ func New(s *store.Store) *Repos {
 		Threads:   &ThreadRepo{r: nil},
 		Posts:     &PostRepo{r: nil},
 		Reactions: &ReactionRepo{r: nil},
+		Tags:      &TagRepo{r: nil},
 	}
 	r.Nodes.r = r
 	r.Threads.r = r
 	r.Posts.r = r
 	r.Reactions.r = r
+	r.Tags.r = r
 
 	hooks := store.NewRebuildHooks()
 	hooks.Set(store.TypeNode, r.Nodes.rebuildHook)
@@ -48,6 +51,7 @@ func New(s *store.Store) *Repos {
 	hooks.Set(store.TypePost, r.Posts.rebuildHook)
 	hooks.Set(store.TypePostReaction, r.Reactions.rebuildHook)
 	hooks.Set(store.TypeReport, r.rebuildReportHook)
+	hooks.Set(store.TypeTag, r.Tags.rebuildHook)
 	r.Hooks = hooks
 	return r
 }
@@ -67,6 +71,7 @@ const (
 	IdxThreadPosts      = "idx:thread_posts"
 	IdxUserLiked        = "idx:user_liked"
 	IdxTagThreads       = "idx:tag_threads"
+	IdxTagSlug          = "idx:tag_slug"
 )
 
 // NodeThreadsKey / ThreadPostsKey expose the per-entity index names so the web
@@ -88,6 +93,7 @@ func nodeThreadsPostsIdx(nodeID uint64) string {
 }
 func userThreadsIdx(uid uint64) string { return fmt.Sprintf("%s:%d", IdxUserThreads, uid) }
 func userPostsIdx(uid uint64) string   { return fmt.Sprintf("%s:%d", IdxUserPosts, uid) }
+func tagThreadsIdx(id uint64) string   { return fmt.Sprintf("%s:%d", IdxTagThreads, id) }
 func childrenOf(parent uint64) string  { return fmt.Sprintf("%s:%d", IdxChildren, parent) }
 
 func keyNode(id uint64) string   { return fmt.Sprintf("node:%d", id) }

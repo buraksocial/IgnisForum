@@ -137,6 +137,41 @@ func TestThreadLifecycle(t *testing.T) {
 	}
 }
 
+func TestThreadTagsRebuildIndexes(t *testing.T) {
+	s, _ := openTestStore(t)
+	r := New(s)
+	cat, err := r.Nodes.CreateCategory("Tags", "tags", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	forum, err := r.Nodes.CreateForum(cat.ID, "Etiketli", "etiketli", "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	thread, _, err := r.Threads.Create(forum.ID, 3, "Go performans", "mesaj")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Tags.ApplyNames(thread.ID, []string{"Go", "performans", "Go"}); err != nil {
+		t.Fatal(err)
+	}
+	tag, ok := r.Tags.BySlug("go")
+	if !ok || tag.ThreadCount != 1 {
+		t.Fatalf("tag lookup=%+v found=%v", tag, ok)
+	}
+	if ids := r.Tags.List("go", 0, 10); len(ids) != 1 || ids[0] != thread.ID {
+		t.Fatalf("tag thread index=%v", ids)
+	}
+	s.RebuildContent(r.Hooks)
+	tag, ok = r.Tags.BySlug("go")
+	if !ok || tag.ThreadCount != 1 {
+		t.Fatalf("rebuilt tag lookup=%+v found=%v", tag, ok)
+	}
+	if ids := r.Tags.List("go", 0, 10); len(ids) != 1 || ids[0] != thread.ID {
+		t.Fatalf("rebuilt tag index=%v", ids)
+	}
+}
+
 func TestReactionToggleAndRebuild(t *testing.T) {
 	s, _ := openTestStore(t)
 	r := New(s)
