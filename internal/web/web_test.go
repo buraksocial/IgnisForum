@@ -340,6 +340,44 @@ func TestPollCreationAndSingleMemberVote(t *testing.T) {
 	}
 }
 
+func TestReplyNotificationCanBeReadByRecipient(t *testing.T) {
+	ts, _, repos, _, _ := newTestServer(t)
+	owner := register(t, ts, "notifowner")
+	csrf := mustFindCSRF(t, owner, ts.URL+"/f/2/new")
+	created := formPost(t, owner, ts.URL+"/f/2/new", url.Values{"csrf": {csrf}, "title": {"Owned thread"}, "message": {"first post"}})
+	if created.StatusCode != http.StatusSeeOther {
+		t.Fatalf("thread create status=%d", created.StatusCode)
+	}
+	threadID := repos.Threads.List(2, "new", 0, 1)[0]
+	actor := register(t, ts, "notifactor")
+	csrf = mustFindCSRF(t, actor, ts.URL+"/t/"+itoa(threadID))
+	reply := formPost(t, actor, ts.URL+"/t/"+itoa(threadID)+"/reply", url.Values{"csrf": {csrf}, "message": {"new reply"}})
+	if reply.StatusCode != http.StatusSeeOther {
+		t.Fatalf("reply status=%d", reply.StatusCode)
+	}
+	code, body, _ := getBody(t, owner, ts.URL+"/notifications")
+	if code != http.StatusOK || !strings.Contains(body, "notifactor konuya yanıt verdi") || !strings.Contains(body, "notification-badge") {
+		t.Fatalf("notification page status=%d body=%s", code, body)
+	}
+	thread, ok := repos.Threads.Get(threadID)
+	if !ok {
+		t.Fatal("created thread missing")
+	}
+	ids := repos.Notifications.List(thread.UserID, 0, 5)
+	if len(ids) != 1 {
+		t.Fatalf("notification list=%v", ids)
+	}
+	csrf = mustFindCSRF(t, owner, ts.URL+"/notifications")
+	marked := formPost(t, owner, ts.URL+"/notifications/"+itoa(ids[0])+"/read", url.Values{"csrf": {csrf}})
+	if marked.StatusCode != http.StatusSeeOther {
+		t.Fatalf("mark-read status=%d", marked.StatusCode)
+	}
+	code, body, _ = getBody(t, owner, ts.URL+"/notifications")
+	if code != http.StatusOK || strings.Contains(body, "notification-badge") || strings.Contains(body, "Okundu işaretle") {
+		t.Fatalf("read notification state status=%d body=%s", code, body)
+	}
+}
+
 // jarNoRedirect: keeps cookies (so the session sticks) but reports the first
 // redirect response instead of following it — for asserting 303/302 flows.
 func jarNoRedirect() *http.Client {

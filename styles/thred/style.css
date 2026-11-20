@@ -141,6 +141,10 @@ label { display: block; font-size: 13px; font-weight: 600; margin: 12px 0 4px; }
 .thread-row p { margin: 0; }
 .poll { margin: 16px 0; padding: 16px; border: 1px solid var(--color-brd); border-radius: var(--radius-theme); }
 .poll-option, .poll-result { display: block; padding: 7px 0; }
+.notification-badge { display: inline-block; min-width: 18px; margin-left: 3px; padding: 1px 5px; border-radius: 10px; background: var(--color-brand); color: var(--color-brand-contrast); text-align: center; font-size: 11px; }
+.notification { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 14px; border-bottom: 1px solid var(--color-brd); }
+.notification.unread { background: var(--color-bg-tone); }
+.notification time { display: block; color: var(--color-typ-tone); font-size: 12px; margin-top: 4px; }
 .thread-title { font-size: 15px; font-weight: 600; color: var(--color-typ); display: block; }
 .thread-title:hover { color: var(--color-brand); text-decoration: none; }
 .thread-by { font-size: 12px; color: var(--color-typ-tone); margin-top: 3px; }

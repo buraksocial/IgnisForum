@@ -50,6 +50,9 @@ func (p *PostRepo) Create(threadID, userID uint64, rawMessage string) (*domain.P
 
 	// 4. FT.
 	s.FTAdd(fmt.Sprintf("post:%d", postID), thread.Title+" "+post.MessageRendered)
+	// Notify the discussion owner after the durable reply exists. Notification
+	// indexing is derived from its primary record and repaired at startup.
+	_ = p.r.Notifications.Create(thread.UserID, userID, threadID, postID)
 
 	return post, nil
 }

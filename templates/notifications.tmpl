@@ -1,0 +1,13 @@
+{{define "notifications"}}
+{{template "header" .}}
+<div class="toolbar"><h1>Bildirimler</h1><span>{{.UnreadNotifications}} okunmamış</span></div>
+{{if .Notifications}}
+<section class="notification-list">
+  {{range .Notifications}}<article class="notification{{if not .Read}} unread{{end}}">
+    <div><a href="/t/{{.ThreadID}}">{{.Actor}} konuya yanıt verdi: {{.ThreadTitle}}</a><time>{{ago .CreatedAt}}</time></div>
+    {{if not .Read}}<form method="post" action="/notifications/{{.ID}}/read"><input type="hidden" name="csrf" value="{{$.CSRF}}"><button class="btn" type="submit">Okundu işaretle</button></form>{{end}}
+  </article>{{end}}
+</section>
+{{else}}<p class="empty">Henüz bildiriminiz yok.</p>{{end}}
+{{template "footer" .}}
+{{end}}

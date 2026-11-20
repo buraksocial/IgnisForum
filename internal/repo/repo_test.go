@@ -210,6 +210,55 @@ func TestPollVotesAreUniqueAndRebuildable(t *testing.T) {
 	}
 }
 
+func TestReplyNotificationUnreadIndexRebuild(t *testing.T) {
+	s, _ := openTestStore(t)
+	r := New(s)
+	cat, err := r.Nodes.CreateCategory("Notify", "notify", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	forum, err := r.Nodes.CreateForum(cat.ID, "Notify", "notify-forum", "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	thread, _, err := r.Threads.Create(forum.ID, 11, "Owner thread", "first")
+	if err != nil {
+		t.Fatal(err)
+	}
+	post, err := r.Posts.Create(thread.ID, 12, "a reply")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := r.Notifications.UnreadCount(11); got != 1 {
+		t.Fatalf("unread count=%d", got)
+	}
+	ids := r.Notifications.List(11, 0, 10)
+	if len(ids) != 1 {
+		t.Fatalf("notification ids=%v", ids)
+	}
+	item, ok := r.Notifications.Get(ids[0])
+	if !ok || item.ActorID != 12 || item.PostID != post.ID {
+		t.Fatalf("notification=%+v", item)
+	}
+	s.RebuildContent(r.Hooks)
+	if got := r.Notifications.UnreadCount(11); got != 1 {
+		t.Fatalf("rebuilt unread count=%d", got)
+	}
+	if err := r.Notifications.MarkRead(11, ids[0]); err != nil {
+		t.Fatal(err)
+	}
+	if got := r.Notifications.UnreadCount(11); got != 0 {
+		t.Fatalf("unread after read=%d", got)
+	}
+	s.RebuildContent(r.Hooks)
+	if got := r.Notifications.UnreadCount(11); got != 0 {
+		t.Fatalf("read state lost on rebuild, unread=%d", got)
+	}
+	if err := r.Notifications.MarkRead(99, ids[0]); err == nil {
+		t.Fatal("another member marked notification read")
+	}
+}
+
 func TestReactionToggleAndRebuild(t *testing.T) {
 	s, _ := openTestStore(t)
 	r := New(s)

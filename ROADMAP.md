@@ -15,7 +15,9 @@ The old forum and its MariaDB data remain authoritative until cutover acceptance
 - [x] Add protected node/category/forum creation, editing, reparenting, and
   empty-only deletion with hierarchy and content-preservation checks.
 - [ ] Complete core community workflows: thread prefixes, attachments,
-  notifications, and private messages.
+  richer notification events, and private messages.
+- [x] Add a persistent reply notification inbox for discussion owners, unread
+  counts, per-item read state, and startup-rebuildable indexes.
 - [x] Add optional single- or multi-choice thread polls gated by forum settings,
   with one ballot per member and vote counts restored from vote records.
 - [x] Add normalized thread tags with a five-tag limit, indexed tag pages, and

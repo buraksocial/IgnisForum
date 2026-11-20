@@ -97,6 +97,8 @@ func buildRouter(srv *Server) chi.Router {
 
 	rr.Get("/", srv.home)
 	rr.Get("/latest", srv.latest)
+	rr.Get("/notifications", srv.notificationsPage)
+	rr.Post("/notifications/{notificationID}/read", srv.markNotificationRead)
 	rr.Get("/search", srv.search)
 	rr.Get("/members/{userID}", srv.memberProfile)
 	rr.Post("/members/{userID}/profile", srv.saveMemberProfile)
@@ -188,11 +190,12 @@ type pageData struct {
 
 	// M2 identity: Me is nil for guests; CSRF is the session token every
 	// form must submit.
-	Me      *domain.User
-	Sess    *auth.Session
-	CSRF    string
-	Admin   bool
-	Flashes []string
+	Me                  *domain.User
+	Sess                *auth.Session
+	CSRF                string
+	Admin               bool
+	UnreadNotifications int
+	Flashes             []string
 
 	// home / latest
 	Cats          []catView
@@ -242,6 +245,7 @@ type pageData struct {
 	ProfilePostCount    int
 	Tags                []tagView
 	Poll                *pollView
+	Notifications       []notificationView
 }
 
 type profilePostRow struct {
@@ -263,6 +267,13 @@ type pollOptionView struct {
 	Index, Votes int
 	Text         string
 	Selected     bool
+}
+type notificationView struct {
+	ID                 uint64
+	Actor, ThreadTitle string
+	ThreadID           uint64
+	CreatedAt          time.Time
+	Read               bool
 }
 
 type adminNodeOption struct {
@@ -370,6 +381,7 @@ func (srv *Server) base(r *http.Request, title, nav string, crumbs []Crumb) *pag
 			d.Sess, d.CSRF = nil, ""
 		} else {
 			d.Admin = srv.can(r, d.Me, perm.ScopeGlobal, 0, perm.KeyAdmin)
+			d.UnreadNotifications = srv.Repos.Notifications.UnreadCount(d.Me.ID)
 		}
 	}
 	themeID := ""
@@ -388,6 +400,43 @@ func (srv *Server) base(r *http.Request, title, nav string, crumbs []Crumb) *pag
 	}
 	d.ThemeOptions = srv.themes.Options()
 	return d
+}
+
+func (srv *Server) notificationsPage(w http.ResponseWriter, r *http.Request) {
+	me := srv.requireAuth(w, r)
+	if me == nil {
+		return
+	}
+	d := srv.base(r, "Bildirimler", "notifications", []Crumb{{Title: "Bildirimler"}})
+	for _, id := range srv.Repos.Notifications.List(me.ID, 0, 50) {
+		item, ok := srv.Repos.Notifications.Get(id)
+		if !ok {
+			continue
+		}
+		thread, ok := srv.Repos.Threads.Get(item.ThreadID)
+		if !ok || !srv.can(r, me, perm.ScopeNode, thread.NodeID, perm.KeyForumView) {
+			continue
+		}
+		d.Notifications = append(d.Notifications, notificationView{ID: item.ID, Actor: srv.username(item.ActorID), ThreadTitle: thread.Title, ThreadID: thread.ID, CreatedAt: item.CreatedAt, Read: item.Read})
+	}
+	srv.render(w, "notifications", d)
+}
+
+func (srv *Server) markNotificationRead(w http.ResponseWriter, r *http.Request) {
+	me := srv.requireAuth(w, r)
+	if me == nil {
+		return
+	}
+	if err := r.ParseForm(); err != nil || !csrfOK(r, r.FormValue("csrf")) {
+		srv.deny(w, r, "CSRF doğrulaması başarısız.")
+		return
+	}
+	id := parseID(chi.URLParam(r, "notificationID"))
+	if err := srv.Repos.Notifications.MarkRead(me.ID, id); err != nil {
+		srv.notFound(w, r)
+		return
+	}
+	http.Redirect(w, r, "/notifications", http.StatusSeeOther)
 }
 
 // can is the permission check seam (Effective is cached in perm.Engine).

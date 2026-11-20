@@ -13,6 +13,7 @@
   <a href="/" class="{{if eq .Nav "home"}}active{{end}}">Forumlar</a>
   <a href="/latest" class="{{if eq .Nav "latest"}}active{{end}}">Yeni içerikler</a>
   <a href="/search" class="{{if eq .Nav "search"}}active{{end}}">Ara</a>
+  {{if .Me}}<a href="/notifications" class="{{if eq .Nav "notifications"}}active{{end}}">Bildirimler{{if gt .UnreadNotifications 0}} <span class="notification-badge">{{.UnreadNotifications}}</span>{{end}}</a>{{end}}
   {{if .Admin}}<a href="/admin" class="{{if eq .Nav "admin"}}active{{end}}">Yönetim</a>{{end}}
 </nav>
 <div class="hdr-user">

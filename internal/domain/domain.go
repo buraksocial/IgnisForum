@@ -166,6 +166,16 @@ type PollVote struct {
 	Options  []int  `json:"options"`
 }
 
+type Notification struct {
+	ID        uint64    `json:"id"`
+	UserID    uint64    `json:"user_id"`
+	ActorID   uint64    `json:"actor_id"`
+	ThreadID  uint64    `json:"thread_id"`
+	PostID    uint64    `json:"post_id"`
+	CreatedAt time.Time `json:"created_at"`
+	Read      bool      `json:"read"`
+}
+
 // LastPostRef is the denormalised "last post" card stored inside node/thread
 // blobs. It is what makes the forum index a single-blob render: no extra reads
 // per row for the last-post column.
