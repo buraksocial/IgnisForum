@@ -36,9 +36,29 @@ direct forum database access. All imports are rejected during package loading.
 Dependencies require exact installed versions and are initialized in stable
 dependency order; cycles and missing/mismatched versions are rejected.
 
-This is the API/runtime foundation, not a complete plugin marketplace or admin
-manager. Package install, preview, enable/disable, per-plugin configuration,
+The appearance page (`/admin/appearance`) lists installed WASM packages. It
+can configure the built-in modules described below, not the WASM packages.
+Package install, preview, enable/disable, per-plugin configuration,
 permissions/capability grants, health UI, and hot rollback are not implemented.
 Until that administration exists, package changes must be made by a trusted
 operator with filesystem access and deployed as an atomic release. Do not expose
 the plugin directory as a web upload destination.
+
+## Built-in modules
+
+- Pin up to eight existing discussions by ID. The sidebar checks current forum
+  visibility and omits deleted or moderated topics.
+- Statistics show topic and message totals for the forums shown to the viewer,
+  using the existing forum counters. No site-wide member count or peak is shown.
+- Presence is off by default. It uses process-local, bounded activity from
+  signed-in page views, with a 15-minute online and a 5-minute active window.
+  Only signed-in viewers can see active member names. No guest or IP tracking.
+- A sponsored slot accepts a plain text title and one HTTPS link, not HTML or
+  scripts. Clear both fields to remove the ad.
+- When external media is enabled, use `[img]https://…[/img]`,
+  `[link]https://…[/link]` and `[download]https://…[/download]` in posts. Images
+  load in the browser only after opening the preview; the server never fetches
+  the resources. Download links point to external files; the external server
+  decides whether they download or open. This is not a file upload service.
+- Preview an installed theme on the settings page without changing preferences.
+  Saving the default applies to users without an explicit theme preference.

@@ -55,11 +55,12 @@ type Deps struct {
 
 // Server holds shared dependencies for all handlers.
 type Server struct {
-	Store  *store.Store
-	Repos  *repo.Repos
-	D      Deps
-	themes *ThemeManager
-	tmpl   *template.Template
+	Store    *store.Store
+	Repos    *repo.Repos
+	D        Deps
+	themes   *ThemeManager
+	tmpl     *template.Template
+	presence memberPresence
 }
 
 // New builds the router with the M2 surface (content + auth). `assets` is the
@@ -122,6 +123,9 @@ func buildRouter(srv *Server) chi.Router {
 	rr.Post("/register", srv.registerSubmit)
 	rr.Post("/logout", srv.logout)
 	rr.Get("/admin", srv.adminHome)
+	rr.Get("/admin/appearance", srv.adminAppearance)
+	rr.Post("/admin/appearance", srv.saveAppearance)
+	rr.Get("/media/preview", srv.mediaPreview)
 	rr.Get("/admin/nodes", srv.adminNodes)
 	rr.Post("/admin/nodes", srv.saveAdminNode)
 	rr.Get("/admin/reports", srv.adminReports)
@@ -181,6 +185,10 @@ func (srv *Server) me(r *http.Request) *domain.User {
 type Crumb struct{ URL, Title string }
 
 type pageData struct {
+	Appearance appearanceSettings
+	Extensions []plugin.Status
+	Sidebar    sidebarView
+	PreviewURL string
 	Title      string
 	Nav        string
 	Crumbs     []Crumb
@@ -336,6 +344,7 @@ type threadRow struct {
 }
 
 type postRow struct {
+	Media     []mediaItem
 	ID        uint64
 	Number    int
 	UserID    uint64
@@ -366,7 +375,8 @@ var reactionLabels = map[string]string{"like": "👍 Beğen", "love": "❤️ Se
 // the session context (zero extra reads for guests, one Get for users).
 func (srv *Server) base(r *http.Request, title, nav string, crumbs []Crumb) *pageData {
 	d := &pageData{
-		Title: title, Nav: nav, Crumbs: crumbs,
+		Appearance: srv.appearance(),
+		Title:      title, Nav: nav, Crumbs: crumbs,
 		Rebuilding: srv.Store.Rebuilding(),
 		Version:    Version, Now: time.Now(),
 		Sess: sessOf(r),
@@ -381,6 +391,9 @@ func (srv *Server) base(r *http.Request, title, nav string, crumbs []Crumb) *pag
 			d.Sess, d.CSRF = nil, ""
 		} else {
 			d.Admin = srv.can(r, d.Me, perm.ScopeGlobal, 0, perm.KeyAdmin)
+			if d.Appearance.Presence && d.Me.State == 0 {
+				srv.presence.touch(d.Me.ID, d.Now)
+			}
 			d.UnreadNotifications = srv.Repos.Notifications.UnreadCount(d.Me.ID)
 		}
 	}
@@ -395,7 +408,7 @@ func (srv *Server) base(r *http.Request, title, nav string, crumbs []Crumb) *pag
 	}
 	if theme, _, ok := srv.themes.Get(themeID); ok {
 		d.ThemeID, d.ThemeVersion = theme.ID, theme.Version
-	} else if theme, _, ok := srv.themes.Get("thred"); ok {
+	} else if theme, _, ok := srv.themes.Get(d.Appearance.DefaultTheme); ok {
 		d.ThemeID, d.ThemeVersion = theme.ID, theme.Version
 	}
 	d.ThemeOptions = srv.themes.Options()
@@ -592,6 +605,7 @@ func (srv *Server) home(w http.ResponseWriter, r *http.Request) {
 	}
 	d := srv.base(r, "IgnisForum — Forum", "home", nil)
 	d.Cats = srv.buildCats(r, d.Me, tree)
+	d.Sidebar = srv.homeSidebar(r, d)
 	d.LatestThreads = srv.threadsFromIDs(srv.Store.ZPage(repo.IdxLatestThreads, 0, 10), d.Me)
 	if srv.D.Plugins != nil {
 		results, err := srv.D.Plugins.RunHook(r.Context(), "home.decorate", map[string]any{"version": Version, "categories": len(d.Cats)})
@@ -739,6 +753,7 @@ func (srv *Server) thread(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rows := make([]postRow, 0, len(postIDs))
+	showMedia := d.Appearance.Media
 	userCache := make(map[uint64]*domain.User)
 	lastReadPostNumber := uint64(0)
 	for i, pid := range postIDs {
@@ -768,6 +783,9 @@ func (srv *Server) thread(w http.ResponseWriter, r *http.Request) {
 			Rendered: template.HTML(post.MessageRendered),
 			Edited:   post.EditCount > 0,
 			Raw:      post.MessageRaw,
+		}
+		if showMedia && post.State == 0 {
+			row.Media = postMedia(post.MessageRaw)
 		}
 		if d.Me != nil {
 			row.CanEdit = d.Me.ID == post.UserID && time.Since(post.Date) <= 15*time.Minute || srv.can(r, d.Me, perm.ScopeGlobal, 0, perm.KeyAdmin)
@@ -1559,7 +1577,7 @@ func (srv *Server) threadsFromIDs(ids []uint64, me *domain.User) []threadRow {
 	rows := make([]threadRow, 0, len(ids))
 	for _, id := range ids {
 		th, ok := srv.Repos.Threads.Get(id)
-		if !ok || th.Status == domain.ThreadDeleted {
+		if !ok || th.Status == domain.ThreadDeleted || th.DiscussionState != 0 || !srv.can(nil, me, perm.ScopeNode, th.NodeID, perm.KeyForumView) {
 			continue
 		}
 		replies := th.PostCount - 1

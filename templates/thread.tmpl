@@ -36,6 +36,7 @@
     <div class="post-num">#{{.Number}} · {{ago .Date}}</div>
   </div>
   <div class="post-body">{{.Rendered}}</div>
+  {{if .Media}}<ul class="post-media">{{range .Media}}<li>{{if eq .Kind "img"}}<a href="{{.Preview}}">Görseli önizle</a> ({{.Host}}){{else}}<a href="{{.URL}}" rel="ugc nofollow noopener noreferrer" target="_blank">{{if eq .Kind "download"}}Harici indirme bağlantısı{{else}}Harici bağlantıyı aç{{end}}</a> ({{.Host}}){{end}}</li>{{end}}</ul>{{end}}
   <div class="post-foot">
     {{if .Edited}}<span class="muted">Son düzenleme: {{.Author}} · {{ago .Date}}</span>{{end}}
     <a href="#post-{{.ID}}" title="Kalıcı bağlantı">#{{.Number}}</a>

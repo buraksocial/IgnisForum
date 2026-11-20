@@ -1,0 +1,21 @@
+{{define "admin_appearance"}}
+{{template "header" .}}
+<h1>Görünüm ve eklentiler</h1>
+<section class="panel"><h2>Kurulu temalar</h2><ul>{{range .ThemeOptions}}<li><a href="/admin/appearance?preview={{.ID}}">{{.Name}} — önizle</a></li>{{end}}</ul></section>
+<form class="panel" method="post" action="/admin/appearance">
+  <input type="hidden" name="csrf" value="{{.CSRF}}">
+  <div class="form-row"><label for="default-theme">Varsayılan tema</label><select id="default-theme" name="default_theme">{{range .ThemeOptions}}<option value="{{.ID}}"{{if eq .ID $.Appearance.DefaultTheme}} selected{{end}}>{{.Name}}</option>{{end}}</select></div>
+  <div class="form-row"><label for="accent">Vurgu rengi (boş bırakılırsa temanın rengi kullanılır)</label><input id="accent" name="accent" maxlength="7" pattern="#[0-9A-Fa-f]{6}" placeholder="#4F83FF" value="{{.Appearance.Accent}}"></div>
+  <fieldset><legend>Yerleşik eklentiler</legend>
+    <div class="form-row"><label><input type="checkbox" name="statistics" value="1"{{if .Appearance.Statistics}} checked{{end}}> Forum istatistikleri</label></div>
+    <div class="form-row"><label><input type="checkbox" name="presence" value="1"{{if .Appearance.Presence}} checked{{end}}> Çevrimiçi ve aktif üyeler (üye adları yalnızca oturum açanlara gösterilir)</label></div>
+    <div class="form-row"><label><input type="checkbox" name="media" value="1"{{if .Appearance.Media}} checked{{end}}> Mesajlarda harici görsel, bağlantı ve indirme bağlantıları</label></div>
+    <div class="form-row"><label for="pinned">Sabit duyuru konu numaraları (virgülle ayırın; en fazla 8)</label><input id="pinned" name="pinned" value="{{range $i, $id := .Appearance.Pinned}}{{if $i}}, {{end}}{{$id}}{{end}}"></div>
+    <div class="form-row"><label for="ad-title">Reklam başlığı (boş bırakırsanız gösterilmez)</label><input id="ad-title" name="ad_title" maxlength="100" value="{{.Appearance.AdTitle}}"></div>
+    <div class="form-row"><label for="ad-url">Reklam bağlantısı</label><input id="ad-url" type="url" name="ad_url" maxlength="2048" value="{{.Appearance.AdURL}}"></div>
+  </fieldset>
+  <button class="btn btn-primary" type="submit">Ayarları kaydet</button>
+</form>
+<section class="panel"><h2>Kurulu WASM paketleri</h2><ul>{{range .Extensions}}<li>{{.Name}} ({{.ID}}, {{.Version}})</li>{{else}}<li>Kurulu paket yok.</li>{{end}}</ul></section>
+{{template "footer" .}}
+{{end}}

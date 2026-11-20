@@ -227,6 +227,9 @@ label { display: block; font-size: 13px; font-weight: 600; margin: 12px 0 4px; }
 .home-grid { display: grid; grid-template-columns: minmax(0,1fr) 300px; gap: 24px; align-items: start; }
 @media (max-width: 900px) { .home-grid { grid-template-columns: 1fr; } .forum-last { display: none; } }
 .side-panel { border: 1px solid var(--color-brd); border-radius: var(--radius-theme); }
+.side-panel.widget { margin-bottom: 16px; }
+.side-panel.widget .sp-title { margin: 0; }
+.side-panel.widget li strong { float: inline-end; }
 .side-panel .sp-title { padding: 10px 16px; font-weight: 700; background: var(--color-bg-tone); border-bottom: 1px solid var(--color-brd); font-family: var(--font-heading); font-size: 14px; border-radius: var(--radius-theme) var(--radius-theme) 0 0; }
 .side-panel ul { list-style: none; margin: 0; padding: 0; }
 .side-panel li { padding: 10px 16px; border-top: 1px solid var(--color-brd); font-size: 13px; }

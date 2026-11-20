@@ -35,6 +35,13 @@
     {{end}}
   </div>
   <aside>
+    {{with .Sidebar}}
+    {{if .Pinned}}<section class="side-panel widget"><h2 class="sp-title">Sabit Duyurular</h2><ul>{{range .Pinned}}<li><a href="/t/{{.ID}}">{{.Title}}</a></li>{{end}}</ul></section>{{end}}
+    {{if .Statistics}}<section class="side-panel widget"><h2 class="sp-title">Forum İstatistikleri</h2><ul><li>Açılan konular <strong>{{.Threads}}</strong></li><li>Yazılan mesajlar <strong>{{.Posts}}</strong></li></ul></section>{{end}}
+    {{if .Presence}}<section class="side-panel widget"><h2 class="sp-title">Çevrimiçi Üyeler</h2><ul><li>Son 15 dakikada {{.Online}} üye</li></ul></section>
+    {{if $.Me}}<section class="side-panel widget"><h2 class="sp-title">Aktif Üyeler</h2><ul>{{range .Active}}<li><a href="/members/{{.ID}}">{{.Name}}</a></li>{{else}}<li>Son 5 dakikada aktif üye yok.</li>{{end}}</ul></section>{{end}}{{end}}
+    {{if .AdURL}}<section class="side-panel widget"><h2 class="sp-title">Reklam</h2><ul><li><a href="{{.AdURL}}" rel="sponsored nofollow noopener noreferrer" target="_blank">{{.AdTitle}}</a></li></ul></section>{{end}}
+    {{end}}
     <div class="side-panel">
       <div class="sp-title">Son Konular</div>
       <ul>

@@ -40,6 +40,14 @@ The old forum and its MariaDB data remain authoritative until cutover acceptance
   hooks, configuration, dependency/version checks, and enable/disable rollback.
 - [x] Implement the initial no-import WASM runtime, bounded `home.decorate` hook,
   exact-version dependency validation, and operator-installed package format.
+- [x] Add an administrator settings page for built-in announcement, statistics,
+  presence, sponsored-link and external media modules; list installed WASM
+  packages and preview/select installed themes.
+- [ ] Add a complete interface message catalog (including server errors and
+  plugins), locale selection, localized dates/plurals and RTL coverage; verify
+  at least 20 production-ready translations end to end.
+- [ ] Publish signed stable and security release metadata; build an opt-in updater
+  with staging verification, backup and rollback, separate from the web process.
 - [ ] Add admin-managed installation/preview/configuration, individual plugin
   enable/disable, audit events, and rollback before treating extensions as complete.
 - [x] Build an isolated read-only Flarum staging importer for users, groups,
