@@ -16,6 +16,7 @@
     <label>{{.Locale.Text "node.slug"}}<input name="slug" pattern="[a-z0-9]+(-[a-z0-9]+)*" maxlength="100" required></label>
     <label>{{.Locale.Text "node.description"}}<textarea name="description" maxlength="1000" rows="2"></textarea></label>
     <label class="check-label"><input type="checkbox" name="allow_polls" value="1"> {{.Locale.Text "node.allow_polls"}}</label>
+    <label>{{.Locale.Text "node.prefixes"}}<input name="prefixes" placeholder="1,2,3"></label>
     <button class="btn btn-primary">{{.Locale.Text "node.add_forum"}}</button>
   </form>
 </div>
@@ -27,7 +28,7 @@
   <div class="admin-node-fields">
     <label>{{$.Locale.Text "node.title"}}<input name="title" value="{{.Title}}" minlength="2" maxlength="100" required></label>
     <label>{{$.Locale.Text "node.slug"}}<input name="slug" value="{{.Slug}}" pattern="[a-z0-9]+(-[a-z0-9]+)*" maxlength="100" required></label>
-    <label class="wide">{{$.Locale.Text "node.description"}}<textarea name="description" maxlength="1000" rows="2">{{.Description}}</textarea></label>
+    <label class="wide">{{$.Locale.Text "node.description"}}<textarea name="description" maxlength="1000" rows="2">{{.Description}}</textarea></label><label>{{$.Locale.Text "node.prefixes"}}<input name="prefixes" value="{{.Prefixes}}" placeholder="1,2,3"></label>
     {{$node := .}}{{if eq .Type "Forum"}}<label>{{$.Locale.Text "node.parent"}}<select name="parent_id">{{range $.AdminNodes}}<option value="{{.ID}}" {{if eq .ID $node.ParentID}}selected{{end}}>{{.Title}}</option>{{end}}</select></label><label class="check-label"><input type="checkbox" name="allow_polls" value="1" {{if .AllowPolls}}checked{{end}}> {{$.Locale.Text "node.allow_polls"}}</label>{{end}}
   </div>
   <div class="admin-node-actions"><button class="btn btn-primary">{{$.Locale.Text "profile.save"}}</button></div>

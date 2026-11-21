@@ -1,0 +1,7 @@
+{{define "admin_prefixes"}}
+{{template "header" .}}
+<div class="toolbar"><h1>{{.Locale.Text "admin.prefixes"}}</h1><a class="btn" href="/admin">{{.Locale.Text "admin.back"}}</a></div>
+<form class="panel admin-group-form" method="post" action="/admin/prefixes"><input type="hidden" name="csrf" value="{{.CSRF}}"><input type="hidden" name="action" value="create"><label>{{.Locale.Text "admin.prefix_name"}}<input name="name" minlength="2" maxlength="40" required></label><label>{{.Locale.Text "admin.prefix_color"}}<input name="color" placeholder="#d97706" pattern="#[0-9a-fA-F]{6}"></label><button class="btn btn-primary">{{.Locale.Text "admin.prefix_create"}}</button></form>
+<div class="admin-group-list">{{range .PrefixOptions}}<form class="panel admin-group-card" method="post" action="/admin/prefixes"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="action" value="delete"><input type="hidden" name="id" value="{{.ID}}"><strong>{{.Name}}</strong>{{if .Color}}<span style="color:{{.Color}}">{{.Color}}</span>{{end}}<button class="btn btn-danger">{{$.Locale.Text "admin.prefix_delete"}}</button></form>{{else}}<div class="empty">{{.Locale.Text "admin.prefix_empty"}}</div>{{end}}</div>
+{{template "footer" .}}
+{{end}}

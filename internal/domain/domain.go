@@ -73,6 +73,12 @@ type NodeOptions struct {
 	AllowPolls bool     `json:"allow_polls"`
 }
 
+type ThreadPrefix struct {
+	ID    uint64 `json:"id"`
+	Name  string `json:"name"`
+	Color string `json:"color,omitempty"`
+}
+
 // ThreadStatus is the moderation/closure state of a thread.
 type ThreadStatus string
 

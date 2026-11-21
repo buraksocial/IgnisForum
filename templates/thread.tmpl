@@ -2,7 +2,7 @@
 {{template "header" .}}
 {{$page := .}}
 <div class="toolbar">
-  <h1>{{.Thread.Title}}</h1>
+<h1>{{if .ThreadPrefix}}<span class="thread-prefix">{{.ThreadPrefix}}</span> {{end}}{{.Thread.Title}}</h1>
   <a class="btn" href="/f/{{.Thread.NodeID}}">{{.Locale.Text "thread.back"}}</a>
   {{if .Me}}<form method="post" action="/t/{{.Thread.ID}}/follow" class="thread-follow-form">
     <input type="hidden" name="csrf" value="{{.CSRF}}">
@@ -115,6 +115,7 @@
   <div class="form-row"><label for="thread-title">{{.Locale.Text "newthread.title"}}</label><input id="thread-title" type="text" name="title" required maxlength="160" placeholder="{{.Locale.Text "newthread.title_hint"}}"></div>
   <div class="form-row"><label for="thread-message">{{.Locale.Text "newthread.message"}}</label><textarea id="thread-message" name="message" rows="8" required placeholder="{{.Locale.Text "newthread.message_hint"}}"></textarea></div>
   <div class="form-row"><label for="thread-tags">{{.Locale.Text "newthread.tags"}}</label><input id="thread-tags" type="text" name="tags" maxlength="200" placeholder="{{.Locale.Text "newthread.tags_hint"}}"></div>
+  {{if .PrefixOptions}}<div class="form-row"><label for="thread-prefix">{{.Locale.Text "newthread.prefix"}}</label><select id="thread-prefix" name="prefix_id"><option value="0">{{.Locale.Text "newthread.prefix_none"}}</option>{{range .PrefixOptions}}{{$prefix := .}}{{if $.Node.Options.Prefixes}}{{range $.Node.Options.Prefixes}}{{if eq . $prefix.ID}}<option value="{{$prefix.ID}}">{{$prefix.Name}}</option>{{end}}{{end}}{{end}}{{end}}</select></div>{{end}}
   {{if .Node.Options.AllowPolls}}<fieldset class="form-row"><legend>{{.Locale.Text "poll.optional"}}</legend>
     <label>{{.Locale.Text "poll.question"}}<input type="text" name="poll_question" maxlength="150"></label>
     <label>{{.Locale.Text "poll.options"}}<textarea name="poll_options" rows="5" maxlength="1200"></textarea></label>

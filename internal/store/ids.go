@@ -23,8 +23,9 @@ const (
 	TypeNotification = "notification"
 	TypeAdminAudit   = "admin_audit"
 	TypeGroup        = "group"
+	TypePrefix       = "prefix"
 
-	numTypes         = 12
+	numTypes         = 13
 	slotUser         = 0
 	slotNode         = 1
 	slotThread       = 2
@@ -37,6 +38,7 @@ const (
 	slotNotification = 9
 	slotAdminAudit   = 10
 	slotGroup        = 11
+	slotPrefix       = 12
 )
 
 var typeSlots = map[string]int{
@@ -52,6 +54,7 @@ var typeSlots = map[string]int{
 	TypeNotification: slotNotification,
 	TypeAdminAudit:   slotAdminAudit,
 	TypeGroup:        slotGroup,
+	TypePrefix:       slotPrefix,
 }
 
 // allocRecord is what meta:id_alloc persists: the global high-water mark plus

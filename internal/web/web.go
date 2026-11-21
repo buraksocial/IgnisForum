@@ -142,6 +142,8 @@ func buildRouter(srv *Server) chi.Router {
 	rr.Post("/admin/users/{userID}", srv.saveAdminUser)
 	rr.Get("/admin/groups", srv.adminGroupsPage)
 	rr.Post("/admin/groups", srv.saveAdminGroup)
+	rr.Get("/admin/prefixes", srv.adminPrefixes)
+	rr.Post("/admin/prefixes", srv.saveAdminPrefix)
 	rr.Get("/admin/audit", srv.adminAudit)
 	rr.Get("/admin/reports", srv.adminReports)
 	rr.Post("/admin/reports/{reportID}/resolve", srv.resolveReport)
@@ -258,11 +260,13 @@ type pageData struct {
 	CanThread  bool
 
 	// thread
-	Thread     *domain.Thread
-	Posts      []postRow
-	CanReply   bool
-	Following  bool
-	ReplyDraft string
+	Thread        *domain.Thread
+	ThreadPrefix  string
+	PrefixOptions []prefixView
+	Posts         []postRow
+	CanReply      bool
+	Following     bool
+	ReplyDraft    string
 
 	// search
 	Query string
@@ -339,6 +343,7 @@ type adminNodeRow struct {
 	ParentID                 uint64
 	AllowPolls               bool
 	ThreadCount, PostCount   int
+	Prefixes                 string
 }
 type adminReportRow struct {
 	ID, PostID, ThreadID uint64
@@ -905,6 +910,14 @@ func (srv *Server) thread(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	d.Thread = th
+	if th.PrefixID != 0 {
+		for _, prefix := range srv.prefixes() {
+			if prefix.ID == th.PrefixID {
+				d.ThreadPrefix = prefix.Name
+				break
+			}
+		}
+	}
 	d.Posts = rows
 	d.Page = page
 	d.TotalPages = pageCount(srv.Store.ZCard(repo.ThreadPostsKey(threadID)), pageSize)
@@ -1194,6 +1207,7 @@ func (srv *Server) newThreadForm(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	d.Node = node
+	d.PrefixOptions = srv.prefixes()
 	srv.render(w, "newthread", d)
 }
 
@@ -1224,6 +1238,15 @@ func (srv *Server) createThread(w http.ResponseWriter, r *http.Request) {
 	pollQuestion := strings.TrimSpace(r.FormValue("poll_question"))
 	pollOptions := parsePollOptions(r.FormValue("poll_options"))
 	pollMultiple := r.FormValue("poll_multiple") == "1"
+	prefixID, _ := strconv.ParseUint(r.FormValue("prefix_id"), 10, 64)
+	if prefixID != 0 {
+		node, ok := srv.Repos.Nodes.Get(nodeID)
+		var prefix domain.ThreadPrefix
+		if !ok || !prefixAllowed(node, prefixID) || func() bool { found, _ := srv.Store.GetJSON(prefixKey(prefixID), &prefix); return !found }() {
+			http.Error(w, "Geçersiz konu öneki.", http.StatusBadRequest)
+			return
+		}
+	}
 	var tagNames []string
 	for _, rawTags := range r.Form["tags"] {
 		tagNames = append(tagNames, strings.Split(rawTags, ",")...)
@@ -1260,6 +1283,13 @@ func (srv *Server) createThread(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
+	}
+	if prefixID != 0 {
+		th.PrefixID = prefixID
+		if err := srv.Store.PutJSON(fmt.Sprintf("thread:%d", th.ID), th); err != nil {
+			http.Error(w, "Önek kaydedilemedi.", http.StatusInternalServerError)
+			return
+		}
 	}
 	if err := srv.Repos.Tags.ApplyNames(th.ID, tagNames); err != nil {
 		http.Error(w, "Etiketler kaydedilemedi.", http.StatusInternalServerError)

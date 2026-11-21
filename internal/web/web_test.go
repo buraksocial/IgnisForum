@@ -685,6 +685,52 @@ func TestAdminCustomGroupManagement(t *testing.T) {
 	}
 }
 
+func TestThreadPrefixLifecycle(t *testing.T) {
+	ts, s, repos, authSvc, _ := newTestServer(t)
+	admin := loginAsAdmin(t, ts, s, authSvc)
+	csrf := mustFindCSRF(t, admin, ts.URL+"/admin/prefixes")
+	resp := formPost(t, admin, ts.URL+"/admin/prefixes", url.Values{"csrf": {csrf}, "action": {"create"}, "name": {"Announcement"}, "color": {"#d97706"}})
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("create prefix = %d", resp.StatusCode)
+	}
+	prefixes := getPrefixTestRecords(t, s)
+	if len(prefixes) != 1 {
+		t.Fatalf("prefix count = %d", len(prefixes))
+	}
+
+	forum, ok := repos.Nodes.Get(2)
+	if !ok {
+		t.Fatal("demo forum missing")
+	}
+	forum.Options.Prefixes = []uint64{prefixes[0].ID}
+	if err := s.PutJSON("node:2", forum); err != nil {
+		t.Fatal(err)
+	}
+	member := register(t, ts, "prefix-author")
+	csrf = mustFindCSRF(t, member, ts.URL+"/f/2/new")
+	resp = formPost(t, member, ts.URL+"/f/2/new", url.Values{"csrf": {csrf}, "title": {"Prefixed topic"}, "message": {"Message"}, "prefix_id": {itoa(prefixes[0].ID)}})
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("create prefixed thread = %d", resp.StatusCode)
+	}
+	threadURL := resp.Header.Get("Location")
+	code, body, _ := getBody(t, member, ts.URL+threadURL)
+	if code != http.StatusOK || !strings.Contains(body, "Announcement") {
+		t.Fatalf("prefix display = %d", code)
+	}
+}
+
+func getPrefixTestRecords(t *testing.T, s *store.Store) []domain.ThreadPrefix {
+	t.Helper()
+	out := []domain.ThreadPrefix{}
+	for id := uint64(1); id <= s.MaxID(store.TypePrefix); id++ {
+		var p domain.ThreadPrefix
+		if ok, _ := s.GetJSON("prefix:"+itoa(id), &p); ok {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
 // TestAuthE2E is the M2 acceptance walk: register → auto-login → reply with
 // CSRF → post visible under the new username → logout → writes blocked again.
 func TestAuthE2E(t *testing.T) {

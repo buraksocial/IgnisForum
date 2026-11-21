@@ -337,7 +337,11 @@ func nodeToAdminRow(node *domain.Node) adminNodeRow {
 	if node.Type == domain.TypeCategory {
 		typeName = "Kategori"
 	}
-	return adminNodeRow{ID: node.ID, Title: node.Title, Slug: node.Slug, Description: node.Description,
+	ids := make([]string, len(node.Options.Prefixes))
+	for i, id := range node.Options.Prefixes {
+		ids[i] = strconv.FormatUint(id, 10)
+	}
+	return adminNodeRow{ID: node.ID, Title: node.Title, Slug: node.Slug, Description: node.Description, Prefixes: strings.Join(ids, ","),
 		Type: typeName, ParentID: node.ParentID, AllowPolls: node.Options.AllowPolls,
 		ThreadCount: node.ThreadCount, PostCount: node.PostCount}
 }
@@ -385,7 +389,12 @@ func (srv *Server) saveAdminNode(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, locale.Text("node.bad_parent"), http.StatusBadRequest)
 			return
 		}
-		_, err = srv.Repos.Nodes.CreateForum(parent, title, slug, description, r.FormValue("allow_polls") == "1")
+		node, createErr := srv.Repos.Nodes.CreateForum(parent, title, slug, description, r.FormValue("allow_polls") == "1")
+		err = createErr
+		if err == nil && node != nil {
+			node.Options.Prefixes = parsePrefixIDs(r.FormValue("prefixes"))
+			err = srv.Store.PutJSON("node:"+strconv.FormatUint(node.ID, 10), node)
+		}
 		if err != nil {
 			http.Error(w, locale.Text("node.forum_failed"), http.StatusInternalServerError)
 			return
@@ -407,6 +416,7 @@ func (srv *Server) saveAdminNode(w http.ResponseWriter, r *http.Request) {
 		}
 		options := node.Options
 		options.AllowPolls = node.Type == domain.TypeForum && r.FormValue("allow_polls") == "1"
+		options.Prefixes = parsePrefixIDs(r.FormValue("prefixes"))
 		parent := uint64(0)
 		if node.Type == domain.TypeForum {
 			parent, err = strconv.ParseUint(r.FormValue("parent_id"), 10, 64)
