@@ -1,14 +1,31 @@
 {{define "admin_reports"}}
 {{template "header" .}}
 <div class="toolbar"><h1>{{.Locale.Text "report.heading"}}</h1><a class="btn" href="/admin">{{.Locale.Text "admin.back"}}</a></div>
+{{if .CanApprovePosts}}<section class="panel">
+  <h2>{{.Locale.Text "moderation.queue"}}</h2>
+  {{range .PendingPosts}}
+  <article class="report-card">
+    <div class="report-meta"><strong><a href="/t/{{.ThreadID}}">{{.ThreadTitle}}</a></strong><span class="muted">{{.Author}} · {{$.Locale.Ago .Date $.Now}}</span></div>
+    <div class="post-body">{{.Message}}</div>
+    <form method="post" action="/admin/moderation/posts/{{.ID}}/approve">
+      <input type="hidden" name="csrf" value="{{$.CSRF}}"><button class="btn btn-primary" type="submit">{{$.Locale.Text "moderation.approve"}}</button>
+    </form>
+  </article>
+  {{else}}<div class="empty">{{.Locale.Text "moderation.no_pending"}}</div>{{end}}
+</section>{{end}}
+{{if .CanModerateReports}}<section class="panel">
+<h2>{{.Locale.Text "report.heading"}}</h2>
 {{range .Reports}}
 <section class="panel report-card">
-  <div class="report-meta"><strong>{{$.Locale.Text "report.number" (printf "%d" .ID)}}</strong><span class="muted">{{.Reporter}} · {{$.Locale.Ago .CreatedAt $.Now}}</span></div>
+  <div class="report-meta"><strong>{{$.Locale.Text "report.number"}} #{{.ID}}</strong><span class="muted">{{.Reporter}} · {{$.Locale.Ago .CreatedAt $.Now}}</span></div>
+  <p>{{$.Locale.Text "report.author"}}: {{.Author}}</p>
   <p>{{.Reason}}</p>
+  {{if .IPHash}}<p class="muted">{{$.Locale.Text "moderation.ip_hash"}}: <code>{{.IPHash}}</code></p>{{end}}
   <div class="report-actions"><a class="btn" href="/t/{{.ThreadID}}/post/{{.PostID}}">{{$.Locale.Text "report.go"}}</a>
     <form method="post" action="/admin/reports/{{.ID}}/resolve"><input type="hidden" name="csrf" value="{{$.CSRF}}"><button class="btn btn-primary">{{$.Locale.Text "report.resolve"}}</button></form>
   </div>
 </section>
 {{else}}<div class="empty">{{.Locale.Text "report.empty"}}</div>{{end}}
+</section>{{end}}
 {{template "footer" .}}
 {{end}}

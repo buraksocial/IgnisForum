@@ -77,6 +77,7 @@ const (
 	IdxUserThreads         = "idx:user_threads"
 	IdxUserPosts           = "idx:user_posts"
 	IdxThreadPosts         = "idx:thread_posts"
+	IdxPendingPosts        = "idx:pending_posts"
 	IdxUserLiked           = "idx:user_liked"
 	IdxTagThreads          = "idx:tag_threads"
 	IdxTagSlug             = "idx:tag_slug"
@@ -90,6 +91,7 @@ func NodeThreadsKey(nodeID uint64) string { return fmt.Sprintf("%s:%d", IdxNodeT
 func ThreadPostsKey(threadID uint64) string {
 	return fmt.Sprintf("%s:%d", IdxThreadPosts, threadID)
 }
+func PendingPostsKey() string { return IdxPendingPosts }
 
 func nodeThreadsNewIdx(nodeID uint64) string { return fmt.Sprintf("%s:%d", IdxNodeThreadsNew, nodeID) }
 func nodeThreadsVotedIdx(nodeID uint64) string {
@@ -97,6 +99,13 @@ func nodeThreadsVotedIdx(nodeID uint64) string {
 }
 func nodeThreadsViewsIdx(nodeID uint64) string {
 	return fmt.Sprintf("%s:%d", IdxNodeThreadsViews, nodeID)
+}
+func nodeThreadsRankIdx(nodeID uint64, sort string, sticky bool) string {
+	class := "normal"
+	if sticky {
+		class = "sticky"
+	}
+	return fmt.Sprintf("idx:node_threads:%d:%s:%s", nodeID, class, sort)
 }
 func nodeThreadsPostsIdx(nodeID uint64) string {
 	return fmt.Sprintf("%s:%d", IdxNodeThreadsPosts, nodeID)

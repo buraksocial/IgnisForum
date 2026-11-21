@@ -16,8 +16,9 @@
       <a href="/" class="{{if eq .Nav "home"}}active{{end}}">{{.Locale.Text "nav.forums"}}</a>
       <a href="/latest" class="{{if eq .Nav "latest"}}active{{end}}">{{.Locale.Text "nav.latest"}}</a>
       <a href="/search" class="{{if eq .Nav "search"}}active{{end}}">{{.Locale.Text "nav.search"}}</a>
-      {{if .Me}}<a href="/notifications" class="{{if eq .Nav "notifications"}}active{{end}}">{{.Locale.Text "nav.notifications"}}{{if gt .UnreadNotifications 0}} <span class="notification-badge">{{.UnreadNotifications}}</span>{{end}}</a>{{end}}
-      {{if .Admin}}<a href="/admin" class="{{if eq .Nav "admin"}}active{{end}}">{{.Locale.Text "nav.admin"}}</a>{{end}}
+       {{if .Me}}<a href="/notifications" class="{{if eq .Nav "notifications"}}active{{end}}">{{.Locale.Text "nav.notifications"}}{{if gt .UnreadNotifications 0}} <span class="notification-badge">{{.UnreadNotifications}}</span>{{end}}</a>{{end}}
+       {{if or .CanModerateReports .CanApprovePosts}}<a href="/admin/reports">{{.Locale.Text "moderation.queue"}}</a>{{end}}
+       {{if .Admin}}<a href="/admin" class="{{if eq .Nav "admin"}}active{{end}}">{{.Locale.Text "nav.admin"}}</a>{{end}}
     </nav>
     <div class="mobile-nav-account">
       <span class="mobile-nav-label">{{.Locale.Text "theme.menu"}}</span>
@@ -41,6 +42,7 @@
   <a href="/latest" class="{{if eq .Nav "latest"}}active{{end}}">{{.Locale.Text "nav.latest"}}</a>
   <a href="/search" class="{{if eq .Nav "search"}}active{{end}}">{{.Locale.Text "nav.search"}}</a>
   {{if .Me}}<a href="/notifications" class="{{if eq .Nav "notifications"}}active{{end}}">{{.Locale.Text "nav.notifications"}}{{if gt .UnreadNotifications 0}} <span class="notification-badge">{{.UnreadNotifications}}</span>{{end}}</a>{{end}}
+  {{if or .CanModerateReports .CanApprovePosts}}<a href="/admin/reports">{{.Locale.Text "moderation.queue"}}</a>{{end}}
   {{if .Admin}}<a href="/admin" class="{{if eq .Nav "admin"}}active{{end}}">{{.Locale.Text "nav.admin"}}</a>{{end}}
 </nav>
 <div class="hdr-user">

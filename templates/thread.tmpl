@@ -9,6 +9,39 @@
     <button class="btn{{if .Following}} btn-primary{{end}}" type="submit">{{if .Following}}{{.Locale.Text "thread.unfollow"}}{{else}}{{.Locale.Text "thread.follow"}}{{end}}</button>
   </form>{{end}}
 </div>
+{{if .FormNotice}}<div class="panel" role="status">{{.FormNotice}}</div>{{end}}
+{{if or .CanModerateThread .CanLockThread .CanRenameThread .CanStickyThread .CanRetagThread}}
+<details class="panel moderation-tools">
+  <summary>{{.Locale.Text "moderation.tools"}}</summary>
+  <div class="toolbar">
+    {{if .CanModerateThread}}<form method="post" action="/t/{{.Thread.ID}}/moderate">
+      <input type="hidden" name="csrf" value="{{.CSRF}}">
+      {{if eq .Thread.DiscussionState 2}}<input type="hidden" name="action" value="restore"><button class="btn btn-primary" type="submit">{{.Locale.Text "moderation.restore_thread"}}</button>
+      {{else}}<input type="hidden" name="action" value="hide"><button class="btn" type="submit">{{.Locale.Text "moderation.hide_thread"}}</button>{{end}}
+    </form>{{end}}
+    {{if .CanLockThread}}<form method="post" action="/t/{{.Thread.ID}}/moderate">
+      <input type="hidden" name="csrf" value="{{.CSRF}}">
+      {{if .ThreadLocked}}<input type="hidden" name="action" value="unlock"><button class="btn" type="submit">{{.Locale.Text "moderation.unlock"}}</button>
+      {{else}}<input type="hidden" name="action" value="lock"><button class="btn" type="submit">{{.Locale.Text "moderation.lock"}}</button>{{end}}
+    </form>{{end}}
+    {{if .CanStickyThread}}<form method="post" action="/t/{{.Thread.ID}}/moderate">
+      <input type="hidden" name="csrf" value="{{.CSRF}}">
+      {{if .Thread.Sticky}}<input type="hidden" name="action" value="unsticky"><button class="btn" type="submit">{{.Locale.Text "moderation.unsticky"}}</button>
+      {{else}}<input type="hidden" name="action" value="sticky"><button class="btn" type="submit">{{.Locale.Text "moderation.sticky"}}</button>{{end}}
+    </form>{{end}}
+  </div>
+  {{if .CanRenameThread}}<form method="post" action="/t/{{.Thread.ID}}/moderate" class="form-row">
+    <input type="hidden" name="csrf" value="{{.CSRF}}"><input type="hidden" name="action" value="rename">
+    <label>{{.Locale.Text "moderation.rename"}}<input name="title" maxlength="160" value="{{.Thread.Title}}" required></label>
+    <button class="btn" type="submit">{{.Locale.Text "post.save"}}</button>
+  </form>{{end}}
+  {{if .CanRetagThread}}<form method="post" action="/t/{{.Thread.ID}}/moderate" class="form-row">
+    <input type="hidden" name="csrf" value="{{.CSRF}}"><input type="hidden" name="action" value="tags">
+    <label>{{.Locale.Text "moderation.tags"}}<input name="tags" maxlength="200" value="{{.ThreadTagNames}}"></label>
+    <button class="btn" type="submit">{{.Locale.Text "post.save"}}</button>
+  </form>{{end}}
+</details>
+{{end}}
 <p class="muted" style="font-size:13px">
   {{.Locale.Text "thread.counts" (.Locale.Count "count.posts" .Thread.PostCount) (.Locale.Count "count.views" .Thread.ViewCount)}}
 </p>
@@ -27,6 +60,7 @@
 {{range .Posts}}
 {{$post := .}}
 <article class="post-block" id="post-{{.ID}}">
+  {{if .Pending}}<div class="muted">{{$.Locale.Text "moderation.pending"}}</div>{{else if .Hidden}}<div class="muted">{{$.Locale.Text "moderation.hidden"}}</div>{{end}}
   <div class="post-head">
     <div class="post-avatar">{{if .AvatarURL}}<img src="{{.AvatarURL}}" alt="{{.Author}}" loading="lazy">{{else}}{{first .Author}}{{end}}</div>
     <div class="post-who">
@@ -36,6 +70,7 @@
     <div class="post-num">#{{.Number}} · {{$.Locale.Ago .Date $.Now}}</div>
   </div>
   <div class="post-body">{{.Rendered}}</div>
+  {{if .IPHash}}<div class="muted">{{$.Locale.Text "moderation.ip_hash"}}: <code>{{.IPHash}}</code></div>{{end}}
   {{if or .Attachment .CanAttach}}<div class="post-attachment">
     {{if .Attachment}}<p><a href="/t/{{$page.Thread.ID}}/post/{{.ID}}/attachment" download>{{$.Locale.Text "attachment.download" .Attachment.Name}}</a> ({{.Attachment.Size}} B)</p>{{end}}
     {{if .CanAttach}}{{if .Attachment}}
@@ -68,6 +103,14 @@
         <button class="btn" type="submit">{{$.Locale.Text "post.delete_reply"}}</button>
       </form>
     </details>{{end}}
+    {{if .CanApprove}}<form method="post" action="/admin/moderation/posts/{{.ID}}/approve" style="display:inline">
+      <input type="hidden" name="csrf" value="{{$page.CSRF}}"><button class="btn btn-primary" type="submit">{{$.Locale.Text "moderation.approve"}}</button>
+    </form>{{end}}
+    {{if .CanModerateHide}}<form method="post" action="/t/{{$page.Thread.ID}}/post/{{.ID}}/moderate" style="display:inline">
+      <input type="hidden" name="csrf" value="{{$page.CSRF}}">
+      {{if .Hidden}}<input type="hidden" name="action" value="restore"><button class="btn" type="submit">{{$.Locale.Text "moderation.restore_post"}}</button>
+      {{else}}<input type="hidden" name="action" value="hide"><button class="btn" type="submit">{{$.Locale.Text "moderation.hide_post"}}</button>{{end}}
+    </form>{{end}}
     {{if .CanReport}}<details class="post-report"><summary>{{$.Locale.Text "post.report"}}</summary>
       <form method="post" action="/t/{{$page.Thread.ID}}/post/{{.ID}}/report">
         <input type="hidden" name="csrf" value="{{$page.CSRF}}">
@@ -78,7 +121,7 @@
   </div>
   <div class="reaction-row" aria-label="{{$.Locale.Text "post.reactions"}}">
     {{range .Reactions}}
-      {{if $.Me}}
+      {{if $post.CanReact}}
       <form method="post" action="/t/{{$page.Thread.ID}}/post/{{$post.ID}}/reaction" style="display:inline">
         <input type="hidden" name="csrf" value="{{$page.CSRF}}">
         <input type="hidden" name="reaction" value="{{.Type}}">
@@ -99,6 +142,7 @@
   <input type="hidden" name="csrf" value="{{.CSRF}}">
   <label for="reply-message">{{.Locale.Text "thread.quick_reply"}}</label>
   <textarea id="reply-message" name="message" rows="5" required placeholder="{{.Locale.Text "thread.reply_hint"}}">{{.ReplyDraft}}</textarea>
+  {{if .RequiresApproval}}<p class="muted">{{.Locale.Text "moderation.pending_notice"}}</p>{{end}}
   <div style="margin-top:10px"><button type="submit" class="btn btn-primary">{{.Locale.Text "thread.reply"}}</button></div>
 </form>
 {{else if not .Me}}
@@ -114,7 +158,8 @@
   <input type="hidden" name="csrf" value="{{.CSRF}}">
   <div class="form-row"><label for="thread-title">{{.Locale.Text "newthread.title"}}</label><input id="thread-title" type="text" name="title" required maxlength="160" placeholder="{{.Locale.Text "newthread.title_hint"}}"></div>
   <div class="form-row"><label for="thread-message">{{.Locale.Text "newthread.message"}}</label><textarea id="thread-message" name="message" rows="8" required placeholder="{{.Locale.Text "newthread.message_hint"}}"></textarea></div>
-  <div class="form-row"><label for="thread-tags">{{.Locale.Text "newthread.tags"}}</label><input id="thread-tags" type="text" name="tags" maxlength="200" placeholder="{{.Locale.Text "newthread.tags_hint"}}"></div>
+  {{if .CanTagThread}}<div class="form-row"><label for="thread-tags">{{.Locale.Text "newthread.tags"}}</label><input id="thread-tags" type="text" name="tags" maxlength="200" placeholder="{{.Locale.Text "newthread.tags_hint"}}"></div>{{end}}
+  {{if .RequiresApproval}}<p class="muted">{{.Locale.Text "moderation.pending_notice"}}</p>{{end}}
   {{if .PrefixOptions}}<div class="form-row"><label for="thread-prefix">{{.Locale.Text "newthread.prefix"}}</label><select id="thread-prefix" name="prefix_id"><option value="0">{{.Locale.Text "newthread.prefix_none"}}</option>{{range .PrefixOptions}}{{$prefix := .}}{{if $.Node.Options.Prefixes}}{{range $.Node.Options.Prefixes}}{{if eq . $prefix.ID}}<option value="{{$prefix.ID}}">{{$prefix.Name}}</option>{{end}}{{end}}{{end}}{{end}}</select></div>{{end}}
   {{if .Node.Options.AllowPolls}}<fieldset class="form-row"><legend>{{.Locale.Text "poll.optional"}}</legend>
     <label>{{.Locale.Text "poll.question"}}<input type="text" name="poll_question" maxlength="150"></label>

@@ -19,13 +19,30 @@ import (
 
 // Permission keys (M2 set — the matrix the acceptance test walks).
 const (
-	KeyAccess       = "access"        // may use the site at all
-	KeyForumView    = "forum_view"    // may see the forum/thread
-	KeyForumThread  = "forum_thread"  // may start threads
-	KeyForumReply   = "forum_reply"   // may reply
-	KeySearch       = "search"        // may run search
-	KeyUserRegister = "user_register" // may register
-	KeyAdmin        = "admin"         // admin cp
+	KeyAccess           = "access"       // may use the site at all
+	KeyForumView        = "forum_view"   // may see the forum/thread
+	KeyForumThread      = "forum_thread" // may start threads
+	KeyForumReply       = "forum_reply"  // may reply
+	KeyPostReport       = "post_report"  // may report another member's post
+	KeyPostReact        = "post_react"   // may react to posts
+	KeySearch           = "search"       // may run search
+	KeySearchUsers      = "search_users" // may search member profiles
+	KeyThreadNoApproval = "thread_without_approval"
+	KeyReplyNoApproval  = "reply_without_approval"
+	KeyPostApprove      = "post_approve"
+	KeyPostEditAny      = "post_edit_any"
+	KeyThreadHide       = "thread_hide"
+	KeyPostHide         = "post_hide"
+	KeyThreadLock       = "thread_lock"
+	KeyThreadRename     = "thread_rename"
+	KeyThreadSticky     = "thread_sticky"
+	KeyThreadTag        = "thread_tag"
+	KeyViewFlags        = "view_flags"
+	KeyViewPostIP       = "view_post_ips"
+	KeyUserSuspend      = "user_suspend"
+	KeyUserLastSeen     = "user_view_last_seen"
+	KeyUserRegister     = "user_register" // may register
+	KeyAdmin            = "admin"         // admin cp
 )
 
 var ErrSystemGroup = errors.New("perm: system group cannot be changed")
@@ -86,6 +103,28 @@ func (e *Engine) UpdateGroup(id uint64, name, description string) error {
 	return e.s.PutJSON(groupKey(id), group)
 }
 
+// ImportGroup preserves a source custom-group ID during an isolated migration.
+// Replays may reuse an identical record, but never overwrite another role.
+func (e *Engine) ImportGroup(id uint64, name, description string) (*domain.Group, error) {
+	name, description = strings.TrimSpace(name), strings.TrimSpace(description)
+	if id <= GroupAdmin || id == ^uint64(0) || len(name) < 2 || len(name) > 80 || len(description) > 500 {
+		return nil, errors.New("perm: invalid imported group")
+	}
+	if existing, ok := e.GetGroup(id); ok {
+		if existing.System || existing.Name != name || existing.Description != description {
+			return nil, errors.New("perm: imported group conflicts with existing role")
+		}
+		return existing, nil
+	}
+	group := &domain.Group{ID: id, Name: name, Description: description}
+	if err := e.s.PutJSON(groupKey(id), group); err != nil {
+		return nil, err
+	}
+	e.s.MarkID(store.TypeGroup, id)
+	e.s.AdvanceIDFloor(id)
+	return group, nil
+}
+
 func (e *Engine) DeleteGroup(id uint64) error {
 	group, ok := e.GetGroup(id)
 	if !ok {
@@ -107,8 +146,11 @@ func (e *Engine) DeleteGroup(id uint64) error {
 
 // AllKeys is the full matrix (order = stable for tests/admin UI).
 var AllKeys = []string{
-	KeyAccess, KeyForumView, KeyForumThread, KeyForumReply, KeySearch,
-	KeyUserRegister, KeyAdmin,
+	KeyAccess, KeyForumView, KeyForumThread, KeyForumReply,
+	KeyThreadNoApproval, KeyReplyNoApproval, KeyPostApprove, KeyPostEditAny,
+	KeyThreadHide, KeyPostHide, KeyThreadLock, KeyThreadRename, KeyThreadSticky,
+	KeyThreadTag, KeyViewFlags, KeyViewPostIP, KeyUserSuspend, KeyUserLastSeen,
+	KeyPostReport, KeyPostReact, KeySearch, KeySearchUsers, KeyUserRegister, KeyAdmin,
 }
 
 // Group ids fixed at bootstrap (M2 keeps it simple; M4 makes them editable).
@@ -264,12 +306,14 @@ func cacheSig(userID uint64, groups []uint64, ctype string, cid uint64, key stri
 	return sb.String()
 }
 
-// Bootstrap writes the stock matrix:
+// Bootstrap writes the stock matrix and fills defaults for permission keys
+// introduced by later versions without replacing any existing grant choices:
 //   - Guest:   access + forum_view + search allow; post/reply/register deny.
-//   - Member:  everything except admin allow.
+//   - Member:  ordinary member actions and explicitly public profile/search
+//     features allow; moderation and sensitive account visibility deny.
 //   - Admin:   everything allow.
 //
-// Idempotent: skips when the member global grant already exists.
+// Idempotent and upgrade-safe: explicit existing grants always take priority.
 func (e *Engine) Bootstrap() error {
 	// The built-in group IDs are reserved in the shared allocator so the first
 	// generated user/node/etc. cannot collide with a group record.
@@ -286,9 +330,6 @@ func (e *Engine) Bootstrap() error {
 			e.s.MarkID(store.TypeGroup, group.ID)
 		}
 	}
-	if e.GetGrant(GroupMember, ScopeGlobal, 0) != nil {
-		return nil
-	}
 	guest := map[string]bool{}
 	member := map[string]bool{}
 	admin := map[string]bool{}
@@ -298,21 +339,36 @@ func (e *Engine) Bootstrap() error {
 			// The register grant lives on the Guest group (XenForo semantics):
 			// "registration closed" = flip this one bit.
 			guest[k] = true
-		case KeyForumThread, KeyForumReply, KeyAdmin:
+		case KeyForumThread, KeyForumReply, KeyPostReport, KeyPostReact, KeyAdmin:
 			guest[k] = false
 		}
-		member[k] = k != KeyAdmin
+		member[k] = k != KeyAdmin && k != KeyUserLastSeen && k != KeySearchUsers &&
+			k != KeyThreadNoApproval && k != KeyReplyNoApproval && k != KeyPostApprove && k != KeyPostEditAny &&
+			k != KeyThreadHide && k != KeyPostHide && k != KeyThreadLock &&
+			k != KeyThreadRename && k != KeyThreadSticky && k != KeyThreadTag &&
+			k != KeyViewFlags && k != KeyViewPostIP && k != KeyUserSuspend
 		admin[k] = true
 	}
-	if err := e.SetGrant(GroupGuest, ScopeGlobal, 0, guest); err != nil {
-		return err
+	for _, defaults := range []struct {
+		group uint64
+		perms map[string]bool
+	}{{GroupGuest, guest}, {GroupMember, member}, {GroupAdmin, admin}} {
+		current := e.GetGrant(defaults.group, ScopeGlobal, 0)
+		if current == nil {
+			current = make(map[string]bool)
+		}
+		changed := false
+		for key, value := range defaults.perms {
+			if _, exists := current[key]; !exists {
+				current[key] = value
+				changed = true
+			}
+		}
+		if changed {
+			if err := e.SetGrant(defaults.group, ScopeGlobal, 0, current); err != nil {
+				return err
+			}
+		}
 	}
-	if err := e.SetGrant(GroupMember, ScopeGlobal, 0, member); err != nil {
-		return err
-	}
-	if err := e.SetGrant(GroupAdmin, ScopeGlobal, 0, admin); err != nil {
-		return err
-	}
-	e.invalidate()
 	return nil
 }

@@ -48,12 +48,17 @@ go run ./cmd/flarum-import \
 
 Review every table's source/imported counts and every exception before accepting
 the staging copy. The importer preserves source IDs for users, tags/forums,
-discussions, and posts, strips active HTML from rendered post content, and maps
-Flarum `viewForum`, `startDiscussion`, and `discussion.reply` grants to the
-corresponding IgnisForum permissions. Other custom/moderation permissions,
-read/subscription state, notifications, mention relations, and some Flarum
-visibility semantics do not have equivalent IgnisForum features; their omission
-must be resolved or explicitly accepted.
+discussions, and posts, and strips active HTML from rendered post content.
+Built-in Flarum groups are mapped by reserved source IDs; custom groups remain
+separate and are never promoted based on their names. Explicit forum and
+moderation grants (including start/reply without approval, post approval,
+reporting, reactions, edit/hide/lock/rename/sticky/tag, flag visibility, IP
+visibility, user search/last-seen, and suspension) map to independent
+IgnisForum permissions and are checked at the relevant forum or handler.
+Pending, hidden, and deleted content remain distinct; pending content stays out
+of public indexes and search until approval. The report still retains unknown
+or unrepresentable source rows/fields as exceptions; review and resolve every
+exception rather than treating a successful import as proof of parity.
 The report is private because it may contain source identifiers and moderation
 details. This command does not switch traffic or change Flarum.
 
@@ -75,12 +80,12 @@ directory (default: `<data_dir>/uploads/avatars`) with fixed image content
 types and `nosniff` protection. The offline backup/restore format includes
 this avatar directory.
 
-`discussion_user` rows with valid imported users/discussions now retain their
+`discussion_user` rows with valid imported users/discussions retain their
 last-read timestamp, last-read post number, and `follow`/`ignore` subscription
 state as primary IgnisForum records. Authenticated thread views advance the
 member's read position and thread pages expose a CSRF-protected follow/unfollow
-control. Follow notifications are not implemented yet; preserved state must not
-be treated as proof that notification parity is complete.
+control. Follow notifications are not implemented yet; preserved state must
+not be treated as proof that notification parity is complete.
 
 ## Offline backup and restore rehearsal
 

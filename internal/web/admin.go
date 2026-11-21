@@ -2,6 +2,7 @@ package web
 
 import (
 	"fmt"
+	"html/template"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/buraksocial/IgnisForum/internal/domain"
 	"github.com/buraksocial/IgnisForum/internal/perm"
+	"github.com/buraksocial/IgnisForum/internal/repo"
 )
 
 var adminSlugPattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
@@ -41,13 +43,30 @@ func (srv *Server) availableGroups() []adminGroupView {
 }
 
 var permissionLabels = map[string]string{
-	perm.KeyAccess:       "permission.access",
-	perm.KeyForumView:    "permission.view",
-	perm.KeyForumThread:  "permission.thread",
-	perm.KeyForumReply:   "permission.reply",
-	perm.KeySearch:       "permission.search",
-	perm.KeyUserRegister: "permission.register",
-	perm.KeyAdmin:        "permission.admin",
+	perm.KeyAccess:           "permission.access",
+	perm.KeyForumView:        "permission.view",
+	perm.KeyForumThread:      "permission.thread",
+	perm.KeyForumReply:       "permission.reply",
+	perm.KeyPostReport:       "permission.report",
+	perm.KeyPostReact:        "permission.react",
+	perm.KeySearch:           "permission.search",
+	perm.KeySearchUsers:      "permission.search_users",
+	perm.KeyThreadNoApproval: "permission.thread_no_approval",
+	perm.KeyReplyNoApproval:  "permission.reply_no_approval",
+	perm.KeyPostApprove:      "permission.post_approve",
+	perm.KeyPostEditAny:      "permission.post_edit_any",
+	perm.KeyThreadHide:       "permission.thread_hide",
+	perm.KeyPostHide:         "permission.post_hide",
+	perm.KeyThreadLock:       "permission.thread_lock",
+	perm.KeyThreadRename:     "permission.thread_rename",
+	perm.KeyThreadSticky:     "permission.thread_sticky",
+	perm.KeyThreadTag:        "permission.thread_tag",
+	perm.KeyViewFlags:        "permission.view_flags",
+	perm.KeyViewPostIP:       "permission.view_ips",
+	perm.KeyUserSuspend:      "permission.user_suspend",
+	perm.KeyUserLastSeen:     "permission.user_last_seen",
+	perm.KeyUserRegister:     "permission.register",
+	perm.KeyAdmin:            "permission.admin",
 }
 
 func (srv *Server) requireAdmin(w http.ResponseWriter, r *http.Request) *domain.User {
@@ -267,25 +286,70 @@ func containsGroup(groups []uint64, want uint64) bool {
 }
 
 func (srv *Server) adminReports(w http.ResponseWriter, r *http.Request) {
-	if srv.requireAdmin(w, r) == nil {
+	d := srv.base(r, srv.uiLocale().Text("report.heading"), "admin", []Crumb{{URL: "/", Title: srv.uiLocale().Text("nav.home")}})
+	d.CanModerateReports = srv.canAnyNode(r, d.Me, perm.KeyViewFlags) || d.Admin
+	d.CanApprovePosts = srv.canAnyNode(r, d.Me, perm.KeyPostApprove) || d.Admin
+	if !d.CanModerateReports && !d.CanApprovePosts {
+		if d.Me == nil {
+			srv.requireAuth(w, r)
+		} else {
+			srv.deny(w, r, d.Locale.Text("moderation.denied"))
+		}
 		return
 	}
-	d := srv.base(r, srv.uiLocale().Text("report.heading"), "admin", []Crumb{{URL: "/admin", Title: srv.uiLocale().Text("nav.admin")}})
-	for _, report := range srv.Repos.OpenReports(0, 100) {
-		_, ok := srv.Repos.Posts.Get(report.PostID)
-		if !ok {
-			continue
+	if d.CanModerateReports {
+		const queuePageSize = 100
+		for offset := 0; offset < srv.Store.ZCard(repo.IdxOpenReports) && len(d.Reports) < queuePageSize; offset += queuePageSize {
+			for _, report := range srv.Repos.OpenReports(offset, queuePageSize) {
+				post, ok := srv.Repos.Posts.Get(report.PostID)
+				if !ok {
+					continue
+				}
+				thread, ok := srv.Repos.Threads.Get(report.ThreadID)
+				if !ok || post.ThreadID != thread.ID || !srv.can(r, d.Me, perm.ScopeNode, thread.NodeID, perm.KeyViewFlags) && !d.Admin {
+					continue
+				}
+				row := adminReportRow{ID: report.ID, PostID: report.PostID, ThreadID: report.ThreadID,
+					Reason: report.Reason, Reporter: srv.username(report.ReporterID), Author: srv.username(post.UserID), CreatedAt: report.CreatedAt}
+				if srv.can(r, d.Me, perm.ScopeNode, thread.NodeID, perm.KeyViewPostIP) || d.Admin {
+					row.IPHash = post.IPHash
+				}
+				d.Reports = append(d.Reports, row)
+				if len(d.Reports) == queuePageSize {
+					break
+				}
+			}
 		}
-		d.Reports = append(d.Reports, adminReportRow{ID: report.ID, PostID: report.PostID, ThreadID: report.ThreadID,
-			Reason: report.Reason, Reporter: srv.username(report.ReporterID), CreatedAt: report.CreatedAt})
+	}
+	if d.CanApprovePosts {
+		const queuePageSize = 100
+		for offset := 0; offset < srv.Store.ZCard(repo.IdxPendingPosts) && len(d.PendingPosts) < queuePageSize; offset += queuePageSize {
+			for _, postID := range srv.Repos.Posts.Pending(offset, queuePageSize) {
+				post, ok := srv.Repos.Posts.Get(postID)
+				if !ok || post.State != domain.PostPending {
+					continue
+				}
+				thread, ok := srv.Repos.Threads.Get(post.ThreadID)
+				if !ok || thread.Status == domain.ThreadDeleted || thread.DiscussionState == domain.DiscussionHidden ||
+					thread.DiscussionState == domain.DiscussionPending && post.ID != thread.FirstPostID ||
+					!srv.can(r, d.Me, perm.ScopeNode, thread.NodeID, perm.KeyPostApprove) && !d.Admin {
+					continue
+				}
+				d.PendingPosts = append(d.PendingPosts, pendingPostRow{ID: post.ID, ThreadID: thread.ID, ThreadTitle: thread.Title,
+					Author: srv.username(post.UserID), Date: post.Date, Message: template.HTML(post.MessageRendered)})
+				if len(d.PendingPosts) == queuePageSize {
+					break
+				}
+			}
+		}
 	}
 	srv.render(w, "admin_reports", d)
 }
 
 func (srv *Server) resolveReport(w http.ResponseWriter, r *http.Request) {
 	locale := srv.uiLocale()
-	admin := srv.requireAdmin(w, r)
-	if admin == nil {
+	actor := srv.requireAuth(w, r)
+	if actor == nil {
 		return
 	}
 	if err := r.ParseForm(); err != nil {
@@ -296,13 +360,63 @@ func (srv *Server) resolveReport(w http.ResponseWriter, r *http.Request) {
 		srv.deny(w, r, locale.Text("auth.bad_csrf"))
 		return
 	}
-	if ok, retry := srv.D.RL.Allow("resolve-report", strconv.FormatUint(admin.ID, 10), 60, time.Minute); !ok {
+	id := parseID(chi.URLParam(r, "reportID"))
+	report, ok := srv.Repos.GetReport(id)
+	if !ok {
+		http.Error(w, locale.Text("report.missing"), http.StatusNotFound)
+		return
+	}
+	thread, ok := srv.Repos.Threads.Get(report.ThreadID)
+	if !ok {
+		http.Error(w, locale.Text("report.missing"), http.StatusNotFound)
+		return
+	}
+	if !srv.can(r, actor, perm.ScopeNode, thread.NodeID, perm.KeyViewFlags) && !srv.can(r, actor, perm.ScopeGlobal, 0, perm.KeyAdmin) {
+		srv.deny(w, r, locale.Text("moderation.denied"))
+		return
+	}
+	if ok, retry := srv.D.RL.Allow("resolve-report", strconv.FormatUint(actor.ID, 10), 60, time.Minute); !ok {
 		srv.tooMany(w, r, retry)
 		return
 	}
-	id := parseID(chi.URLParam(r, "reportID"))
-	if err := srv.Repos.ResolveReport(id, admin.ID); err != nil {
+	if err := srv.Repos.ResolveReport(id, actor.ID); err != nil {
 		http.Error(w, locale.Text("report.missing"), http.StatusNotFound)
+		return
+	}
+	http.Redirect(w, r, "/admin/reports", http.StatusSeeOther)
+}
+
+func (srv *Server) approvePendingPost(w http.ResponseWriter, r *http.Request) {
+	me := srv.requireAuth(w, r)
+	if me == nil {
+		return
+	}
+	if err := r.ParseForm(); err != nil || !csrfOK(r, r.FormValue("csrf")) {
+		srv.deny(w, r, srv.uiLocale().Text("auth.bad_csrf"))
+		return
+	}
+	postID := parseID(chi.URLParam(r, "postID"))
+	post, ok := srv.Repos.Posts.Get(postID)
+	if !ok || post == nil {
+		srv.notFound(w, r)
+		return
+	}
+	thread, threadOK := srv.Repos.Threads.Get(post.ThreadID)
+	if !threadOK || thread.Status == domain.ThreadDeleted || thread.DiscussionState == domain.DiscussionHidden ||
+		post.State != domain.PostPending || thread.DiscussionState == domain.DiscussionPending && post.ID != thread.FirstPostID {
+		srv.notFound(w, r)
+		return
+	}
+	if !srv.can(r, me, perm.ScopeNode, thread.NodeID, perm.KeyPostApprove) {
+		srv.deny(w, r, srv.uiLocale().Text("moderation.denied"))
+		return
+	}
+	if allowed, retry := srv.D.RL.Allow("approve-post", strconv.FormatUint(me.ID, 10), 30, time.Minute); !allowed {
+		srv.tooMany(w, r, retry)
+		return
+	}
+	if err := srv.Repos.Posts.Approve(postID); err != nil {
+		http.Error(w, "Mesaj onaylanamadı.", http.StatusConflict)
 		return
 	}
 	http.Redirect(w, r, "/admin/reports", http.StatusSeeOther)

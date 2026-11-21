@@ -53,13 +53,62 @@ func (t *TagRepo) ApplyNames(threadID uint64, names []string) error {
 			ids = append(ids, id)
 		}
 	}
+	for _, oldID := range thread.TagIDs {
+		t.r.S.ZRem(tagThreadsIdx(oldID), threadID)
+	}
 	thread.TagIDs = ids
 	thread.Version++
 	if err := t.r.S.PutJSON(keyThread(threadID), thread); err != nil {
 		return err
 	}
+	if thread.Status != domain.ThreadDeleted && thread.DiscussionState == domain.DiscussionVisible {
+		for _, id := range ids {
+			t.r.S.ZAddIdx(tagThreadsIdx(id), ts(thread.Date), threadID)
+		}
+	}
+	return nil
+}
+
+func (t *TagRepo) All() []*domain.Tag {
+	max := t.r.S.MaxID(store.TypeTag)
+	out := make([]*domain.Tag, 0, max)
+	for id := uint64(1); id <= max; id++ {
+		if tag, ok := t.ByID(id); ok {
+			out = append(out, tag)
+		}
+	}
+	return out
+}
+
+// SetIDs replaces a thread's tags with existing tag records only.
+func (t *TagRepo) SetIDs(threadID uint64, ids []uint64) error {
+	thread, ok := t.r.Threads.Get(threadID)
+	if !ok {
+		return fmt.Errorf("thread %d not found", threadID)
+	}
+	unique := make([]uint64, 0, len(ids))
+	seen := make(map[uint64]bool)
 	for _, id := range ids {
-		t.r.S.ZAddIdx(tagThreadsIdx(id), ts(thread.Date), threadID)
+		if _, ok := t.ByID(id); !ok {
+			return fmt.Errorf("tag %d not found", id)
+		}
+		if !seen[id] {
+			seen[id] = true
+			unique = append(unique, id)
+		}
+	}
+	for _, id := range thread.TagIDs {
+		t.r.S.ZRem(tagThreadsIdx(id), threadID)
+	}
+	thread.TagIDs = unique
+	thread.Version++
+	if err := t.r.S.PutJSON(keyThread(threadID), thread); err != nil {
+		return err
+	}
+	if thread.Status != domain.ThreadDeleted && thread.DiscussionState == domain.DiscussionVisible {
+		for _, id := range unique {
+			t.r.S.ZAddIdx(tagThreadsIdx(id), ts(thread.Date), threadID)
+		}
 	}
 	return nil
 }

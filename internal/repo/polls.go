@@ -75,7 +75,7 @@ func (p *PollRepo) Vote(threadID, userID uint64, choices []int) error {
 		return fmt.Errorf("authentication required")
 	}
 	thread, ok := p.r.Threads.Get(threadID)
-	if !ok || thread.PollID != threadID || thread.Status != domain.ThreadOpen {
+	if !ok || thread.PollID != threadID || thread.Status != domain.ThreadOpen || thread.DiscussionState != domain.DiscussionVisible {
 		return fmt.Errorf("poll unavailable")
 	}
 	node, ok := p.r.Nodes.Get(thread.NodeID)

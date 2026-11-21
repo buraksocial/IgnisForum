@@ -7,9 +7,17 @@
     <dt>{{.Locale.Text "profile.joined"}}</dt><dd>{{.Locale.Ago .Profile.JoinedAt .Now}}</dd>
     <dt>{{.Locale.Text "profile.posts"}}</dt><dd>{{.ProfilePostCount}}</dd>
     <dt>{{.Locale.Text "profile.likes"}}</dt><dd>{{.Profile.LikeScore}}</dd>
+    {{if .CanViewLastSeen}}<dt>{{.Locale.Text "members.last_seen"}}</dt><dd>{{if .ProfileHasLastSeen}}{{.Locale.Ago .ProfileLastSeen .Now}}{{else}}{{.Locale.Text "members.last_seen_unknown"}}{{end}}</dd>{{end}}
   </dl>
   {{if .Profile.Signature}}<p class="muted">{{.Profile.Signature}}</p>{{end}}
 </section>
+{{if .CanSuspendUser}}<section class="panel">
+  <form method="post" action="/members/{{.Profile.ID}}/moderate">
+    <input type="hidden" name="csrf" value="{{.CSRF}}">
+    {{if eq .Profile.State 0}}<input type="hidden" name="action" value="suspend"><button class="btn" type="submit">{{.Locale.Text "moderation.suspend"}}</button>
+    {{else}}<input type="hidden" name="action" value="activate"><button class="btn btn-primary" type="submit">{{.Locale.Text "moderation.activate"}}</button>{{end}}
+  </form>
+</section>{{end}}
 {{if and .Me (eq .Me.ID .Profile.ID)}}
 <section class="panel">
   <h2>{{.Locale.Text "profile.edit"}}</h2>

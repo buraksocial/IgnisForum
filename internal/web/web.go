@@ -107,8 +107,10 @@ func buildRouter(srv *Server) chi.Router {
 	rr.Get("/notifications", srv.notificationsPage)
 	rr.Post("/notifications/{notificationID}/read", srv.markNotificationRead)
 	rr.Get("/search", srv.search)
+	rr.Get("/members/search", srv.searchMembers)
 	rr.Get("/members/{userID}", srv.memberProfile)
 	rr.Post("/members/{userID}/profile", srv.saveMemberProfile)
+	rr.Post("/members/{userID}/moderate", srv.moderateUser)
 	rr.Get("/tags/{slug}", srv.tagThreads)
 	rr.Get("/f/{nodeID}", srv.forum)
 	rr.Get("/f/{nodeID}/new", srv.newThreadForm)
@@ -122,6 +124,8 @@ func buildRouter(srv *Server) chi.Router {
 	rr.Post("/t/{threadID}/post/{postID}/delete", srv.deletePost)
 	rr.Post("/t/{threadID}/post/{postID}/report", srv.reportPost)
 	rr.Post("/t/{threadID}/post/{postID}/reaction", srv.react)
+	rr.Post("/t/{threadID}/moderate", srv.moderateThread)
+	rr.Post("/t/{threadID}/post/{postID}/moderate", srv.moderatePost)
 	rr.Get("/t/{threadID}/post/{postID}/attachment", srv.downloadAttachment)
 	rr.Post("/t/{threadID}/post/{postID}/attachment", srv.uploadAttachment)
 	rr.Post("/t/{threadID}/post/{postID}/attachment/remove", srv.removeAttachment)
@@ -147,6 +151,7 @@ func buildRouter(srv *Server) chi.Router {
 	rr.Get("/admin/audit", srv.adminAudit)
 	rr.Get("/admin/reports", srv.adminReports)
 	rr.Post("/admin/reports/{reportID}/resolve", srv.resolveReport)
+	rr.Post("/admin/moderation/posts/{postID}/approve", srv.approvePendingPost)
 	rr.Get("/admin/permissions", srv.adminPermissions)
 	rr.Post("/admin/permissions", srv.saveAdminPermissions)
 
@@ -211,6 +216,10 @@ func (srv *Server) me(r *http.Request) *domain.User {
 		return nil
 	}
 	u, _ := srv.D.Users.GetByID(s.UserID)
+	if u != nil && u.State != 0 {
+		srv.D.Auth.DestroySession(s.SID)
+		return nil
+	}
 	return u
 }
 
@@ -260,21 +269,38 @@ type pageData struct {
 	CanThread  bool
 
 	// thread
-	Thread        *domain.Thread
-	ThreadPrefix  string
-	PrefixOptions []prefixView
-	Posts         []postRow
-	CanReply      bool
-	Following     bool
-	ReplyDraft    string
+	Thread            *domain.Thread
+	ThreadPrefix      string
+	PrefixOptions     []prefixView
+	Posts             []postRow
+	CanReply          bool
+	Following         bool
+	ReplyDraft        string
+	CanModerateThread bool
+	CanLockThread     bool
+	CanRenameThread   bool
+	CanStickyThread   bool
+	CanRetagThread    bool
+	CanTagThread      bool
+	ThreadTagNames    string
+	ThreadLocked      bool
+	RequiresApproval  bool
 
 	// search
-	Query string
-	Hits  []threadRow
-	HaveQ bool
+	Query              string
+	Hits               []threadRow
+	HaveQ              bool
+	MemberQuery        string
+	MemberResults      []memberSearchRow
+	CanSearchMembers   bool
+	CanViewLastSeen    bool
+	ProfileLastSeen    time.Time
+	ProfileHasLastSeen bool
+	CanSuspendUser     bool
 
 	// auth forms
 	FormError     string
+	FormNotice    string
 	Remember      bool
 	RedirectBack  string
 	ThemeID       string
@@ -295,6 +321,9 @@ type pageData struct {
 	AdminUserTotal      int
 	AdminAudit          []adminAuditRow
 	Reports             []adminReportRow
+	CanModerateReports  bool
+	CanApprovePosts     bool
+	PendingPosts        []pendingPostRow
 	Profile             *domain.User
 	ProfilePosts        []profilePostRow
 	ProfilePostCount    int
@@ -306,6 +335,22 @@ type pageData struct {
 type profilePostRow struct {
 	ThreadID    uint64
 	ThreadTitle string
+	Date        time.Time
+	Message     template.HTML
+}
+type memberSearchRow struct {
+	ID           uint64
+	Username     string
+	Title        string
+	LastSeen     time.Time
+	ShowLastSeen bool
+	HasLastSeen  bool
+}
+type pendingPostRow struct {
+	ID          uint64
+	ThreadID    uint64
+	ThreadTitle string
+	Author      string
 	Date        time.Time
 	Message     template.HTML
 }
@@ -346,9 +391,9 @@ type adminNodeRow struct {
 	Prefixes                 string
 }
 type adminReportRow struct {
-	ID, PostID, ThreadID uint64
-	Reason, Reporter     string
-	CreatedAt            time.Time
+	ID, PostID, ThreadID             uint64
+	Reason, Reporter, Author, IPHash string
+	CreatedAt                        time.Time
 }
 type adminUserRow struct {
 	ID       uint64
@@ -411,23 +456,29 @@ type threadRow struct {
 }
 
 type postRow struct {
-	Attachment *attachmentInfo
-	CanAttach  bool
-	Media      []mediaItem
-	ID         uint64
-	Number     int
-	UserID     uint64
-	Author     string
-	AvatarURL  string
-	Rank       string
-	Date       time.Time
-	Rendered   template.HTML
-	Edited     bool
-	CanEdit    bool
-	CanDelete  bool
-	Raw        string
-	CanReport  bool
-	Reactions  []reactionView
+	Attachment      *attachmentInfo
+	CanAttach       bool
+	Media           []mediaItem
+	ID              uint64
+	Number          int
+	UserID          uint64
+	Author          string
+	AvatarURL       string
+	Rank            string
+	Date            time.Time
+	Rendered        template.HTML
+	Edited          bool
+	CanEdit         bool
+	CanDelete       bool
+	Raw             string
+	CanReport       bool
+	CanReact        bool
+	Hidden          bool
+	Pending         bool
+	CanApprove      bool
+	CanModerateHide bool
+	IPHash          string
+	Reactions       []reactionView
 }
 
 type reactionView struct {
@@ -461,6 +512,9 @@ func (srv *Server) base(r *http.Request, title, nav string, crumbs []Crumb) *pag
 			d.Sess, d.CSRF = nil, ""
 		} else {
 			d.Admin = srv.can(r, d.Me, perm.ScopeGlobal, 0, perm.KeyAdmin)
+			d.CanModerateReports = d.Admin || srv.canAnyNode(r, d.Me, perm.KeyViewFlags)
+			d.CanApprovePosts = d.Admin || srv.canAnyNode(r, d.Me, perm.KeyPostApprove)
+			d.CanSearchMembers = srv.can(r, d.Me, perm.ScopeGlobal, 0, perm.KeySearchUsers)
 			if d.Appearance.Presence && d.Me.State == 0 {
 				srv.presence.touch(d.Me.ID, d.Now)
 			}
@@ -533,6 +587,41 @@ func (srv *Server) can(r *http.Request, u *domain.User, ctype string, cid uint64
 	return srv.D.Perms.Effective(uid, groups, ctype, cid, key)
 }
 
+// canViewThreadContent centralizes direct-link and mutation checks so hidden or
+// pending discussions cannot be reached by bypassing their listing page.
+func (srv *Server) canViewThreadContent(r *http.Request, me *domain.User, thread *domain.Thread) bool {
+	if thread == nil || thread.Status == domain.ThreadDeleted ||
+		!srv.can(r, me, perm.ScopeNode, thread.NodeID, perm.KeyForumView) {
+		return false
+	}
+	switch thread.DiscussionState {
+	case domain.DiscussionHidden:
+		return srv.can(r, me, perm.ScopeNode, thread.NodeID, perm.KeyThreadHide)
+	case domain.DiscussionPending:
+		return me != nil && (me.ID == thread.UserID || srv.can(r, me, perm.ScopeNode, thread.NodeID, perm.KeyPostApprove))
+	default:
+		return true
+	}
+}
+
+// canAnyNode is used for navigation and cross-forum queues whose permissions
+// may be granted at one forum or inherited from a category. Mutation handlers
+// still check the exact target node before acting.
+func (srv *Server) canAnyNode(r *http.Request, u *domain.User, key string) bool {
+	tree, err := srv.Repos.Nodes.LoadTree()
+	if err != nil {
+		return false
+	}
+	for _, category := range tree.Categories {
+		for _, forum := range category.Forums {
+			if srv.can(r, u, perm.ScopeNode, forum.NodeID, key) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // csrfOK validates the posted token against the session. Guests have no
 // session at all → every POST from them must be rejected (the handlers
 // redirect to login before this even matters, but defence in depth).
@@ -551,6 +640,18 @@ func (srv *Server) requireAuth(w http.ResponseWriter, r *http.Request) *domain.U
 	}
 	http.Redirect(w, r, target, http.StatusFound)
 	return nil
+}
+
+func (srv *Server) requirePermission(w http.ResponseWriter, r *http.Request, key string, scope string, cid uint64) *domain.User {
+	me := srv.requireAuth(w, r)
+	if me == nil {
+		return nil
+	}
+	if !srv.can(r, me, scope, cid, key) {
+		srv.deny(w, r, "Bu işlem için gerekli izniniz yok.")
+		return nil
+	}
+	return me
 }
 
 // deny renders a permission-denied page (logged in but lacks the grant).
@@ -780,6 +881,16 @@ func (srv *Server) thread(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	d := srv.base(r, th.Title, "home", []Crumb{{URL: "/f/" + itoa(th.NodeID), Title: srv.nodeName(th.NodeID)}})
+	canHideThread := srv.can(r, d.Me, perm.ScopeNode, th.NodeID, perm.KeyThreadHide)
+	canApprove := srv.can(r, d.Me, perm.ScopeNode, th.NodeID, perm.KeyPostApprove)
+	if th.DiscussionState == domain.DiscussionHidden && !canHideThread {
+		srv.notFound(w, r)
+		return
+	}
+	if th.DiscussionState == domain.DiscussionPending && !canApprove && (d.Me == nil || d.Me.ID != th.UserID) {
+		srv.notFound(w, r)
+		return
+	}
 	if !srv.can(r, d.Me, perm.ScopeNode, th.NodeID, perm.KeyForumView) {
 		if d.Me == nil {
 			srv.requireAuth(w, r)
@@ -788,13 +899,54 @@ func (srv *Server) thread(w http.ResponseWriter, r *http.Request) {
 		srv.deny(w, r, "Bu konuyu görüntüleme izniniz yok.")
 		return
 	}
+	d.CanModerateThread = canHideThread
+	d.CanLockThread = srv.can(r, d.Me, perm.ScopeNode, th.NodeID, perm.KeyThreadLock)
+	d.CanRenameThread = srv.can(r, d.Me, perm.ScopeNode, th.NodeID, perm.KeyThreadRename)
+	d.CanStickyThread = srv.can(r, d.Me, perm.ScopeNode, th.NodeID, perm.KeyThreadSticky)
+	d.CanRetagThread = srv.can(r, d.Me, perm.ScopeNode, th.NodeID, perm.KeyThreadTag)
+	d.ThreadLocked = th.Status == domain.ThreadClosed
+	d.FormNotice = ""
+	if r.URL.Query().Get("pending") == "1" {
+		d.FormNotice = d.Locale.Text("moderation.pending_notice")
+	}
+	for _, tagID := range th.TagIDs {
+		if tag, found := srv.Repos.Tags.ByID(tagID); found {
+			if d.ThreadTagNames != "" {
+				d.ThreadTagNames += ", "
+			}
+			d.ThreadTagNames += tag.Title
+		}
+	}
 	// View counter: write primary + one in-node index score update (M1 accepts
 	// the per-node O(n) shift; see §3 perf note).
 	_ = srv.Repos.Threads.IncrementViews(threadID)
 
 	page := parseInt(r, "p", 1)
+	if page < 1 {
+		page = 1
+	}
+	canPostModerate := srv.can(r, d.Me, perm.ScopeNode, th.NodeID, perm.KeyPostHide)
+	visiblePostIDs := make([]uint64, 0, srv.Store.ZCard(repo.ThreadPostsKey(threadID)))
+	for _, postID := range srv.Repos.Posts.List(threadID, 0, srv.Store.ZCard(repo.ThreadPostsKey(threadID))) {
+		post, found := srv.Repos.Posts.Get(postID)
+		if !found || post.State == domain.PostDeleted || post.State == domain.PostHidden && !canPostModerate {
+			continue
+		}
+		if post.State == domain.PostPending && !canApprove && (d.Me == nil || d.Me.ID != post.UserID) {
+			continue
+		}
+		visiblePostIDs = append(visiblePostIDs, postID)
+	}
+	d.TotalPages = pageCount(len(visiblePostIDs), pageSize)
+	if page > d.TotalPages {
+		page = d.TotalPages
+	}
 	offset := (page - 1) * pageSize
-	postIDs := srv.Repos.Posts.List(threadID, offset, pageSize)
+	end := offset + pageSize
+	if end > len(visiblePostIDs) {
+		end = len(visiblePostIDs)
+	}
+	postIDs := visiblePostIDs[offset:end]
 	for _, tagID := range th.TagIDs {
 		if tag, found := srv.Repos.Tags.ByID(tagID); found {
 			d.Tags = append(d.Tags, tagView{Slug: tag.Slug, Title: tag.Title, ThreadCount: tag.ThreadCount})
@@ -827,9 +979,9 @@ func (srv *Server) thread(w http.ResponseWriter, r *http.Request) {
 	}
 	userCache := make(map[uint64]*domain.User)
 	lastReadPostNumber := uint64(0)
-	for i, pid := range postIDs {
+	for _, pid := range postIDs {
 		post, ok := srv.Repos.Posts.Get(pid)
-		if !ok || post.State == 2 {
+		if !ok || post.State == domain.PostDeleted {
 			continue
 		}
 		author, avatarURL := d.Locale.Text("thread.guest"), ""
@@ -849,11 +1001,13 @@ func (srv *Server) thread(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		row := postRow{
-			ID: post.ID, Number: offset + i + 1, UserID: post.UserID,
+			ID: post.ID, Number: offset + len(rows) + 1, UserID: post.UserID,
 			Author: author, AvatarURL: avatarURL, Rank: d.Locale.Text("thread.member"), Date: post.Date,
 			Rendered: template.HTML(post.MessageRendered),
 			Edited:   post.EditCount > 0,
 			Raw:      post.MessageRaw,
+			Hidden:   post.State == domain.PostHidden,
+			Pending:  post.State == domain.PostPending,
 		}
 		if showMedia && post.State == 0 {
 			row.Media = postMedia(post.MessageRaw)
@@ -865,9 +1019,15 @@ func (srv *Server) thread(w http.ResponseWriter, r *http.Request) {
 			row.CanAttach = srv.canManageAttachment(r, d.Me, th, post)
 		}
 		if d.Me != nil {
-			row.CanEdit = d.Me.ID == post.UserID && time.Since(post.Date) <= 15*time.Minute || srv.can(r, d.Me, perm.ScopeGlobal, 0, perm.KeyAdmin)
-			row.CanDelete = post.ID != th.FirstPostID && (d.Me.ID == post.UserID && time.Since(post.Date) <= 15*time.Minute || srv.can(r, d.Me, perm.ScopeGlobal, 0, perm.KeyAdmin))
-			row.CanReport = d.Me.ID != post.UserID
+			row.CanEdit = post.State == domain.PostVisible && (d.Me.ID == post.UserID && time.Since(post.Date) <= 15*time.Minute || srv.can(r, d.Me, perm.ScopeGlobal, 0, perm.KeyAdmin) || srv.can(r, d.Me, perm.ScopeNode, th.NodeID, perm.KeyPostEditAny))
+			row.CanDelete = post.State == domain.PostVisible && post.ID != th.FirstPostID && (d.Me.ID == post.UserID && time.Since(post.Date) <= 15*time.Minute || srv.can(r, d.Me, perm.ScopeGlobal, 0, perm.KeyAdmin))
+			row.CanReport = post.State == domain.PostVisible && d.Me.ID != post.UserID && srv.can(r, d.Me, perm.ScopeNode, th.NodeID, perm.KeyPostReport)
+			row.CanReact = post.State == domain.PostVisible && srv.can(r, d.Me, perm.ScopeNode, th.NodeID, perm.KeyPostReact)
+			row.CanApprove = post.State == domain.PostPending && canApprove
+			row.CanModerateHide = canPostModerate && post.ID != th.FirstPostID && (post.State == domain.PostVisible || post.State == domain.PostHidden)
+			if srv.can(r, d.Me, perm.ScopeNode, th.NodeID, perm.KeyViewPostIP) {
+				row.IPHash = post.IPHash
+			}
 		}
 		myReaction := ""
 		if d.Me != nil {
@@ -896,7 +1056,8 @@ func (srv *Server) thread(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	d.CanReply = th.Status == domain.ThreadOpen && srv.can(r, d.Me, perm.ScopeNode, th.NodeID, perm.KeyForumReply)
+	d.CanReply = th.Status == domain.ThreadOpen && th.DiscussionState == domain.DiscussionVisible && srv.can(r, d.Me, perm.ScopeNode, th.NodeID, perm.KeyForumReply)
+	d.RequiresApproval = d.CanReply && !srv.can(r, d.Me, perm.ScopeNode, th.NodeID, perm.KeyReplyNoApproval)
 	if d.CanReply {
 		if quoteID := parseID(r.URL.Query().Get("quote")); quoteID != 0 {
 			if quoted, ok := srv.Repos.Posts.Get(quoteID); ok && quoted.ThreadID == threadID && quoted.State == 0 {
@@ -920,7 +1081,6 @@ func (srv *Server) thread(w http.ResponseWriter, r *http.Request) {
 	}
 	d.Posts = rows
 	d.Page = page
-	d.TotalPages = pageCount(srv.Store.ZCard(repo.ThreadPostsKey(threadID)), pageSize)
 	d.PageWindow = pageWindow(page, d.TotalPages)
 	srv.render(w, "thread", d)
 }
@@ -944,7 +1104,7 @@ func (srv *Server) toggleThreadFollow(w http.ResponseWriter, r *http.Request) {
 		srv.notFound(w, r)
 		return
 	}
-	if !srv.can(r, me, perm.ScopeNode, thread.NodeID, perm.KeyForumView) {
+	if !srv.canViewThreadContent(r, me, thread) {
 		srv.deny(w, r, "Bu konuyu takip etme izniniz yok.")
 		return
 	}
@@ -968,9 +1128,8 @@ func (srv *Server) toggleThreadFollow(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/t/"+itoa(threadID), http.StatusSeeOther)
 }
 
-// postRedirect resolves a /t/{tid}/post/{pid} deep link to the owning page by
-// counting members at-or-before the post's score (bounded by thread size —
-// ZCountUpTo materialises the range, which is fine for one thread's index).
+// postRedirect resolves a /t/{tid}/post/{pid} link to the page containing the
+// post, counting only entries the current viewer is allowed to see.
 func (srv *Server) postRedirect(w http.ResponseWriter, r *http.Request) {
 	threadID := parseID(chi.URLParam(r, "threadID"))
 	postID := parseID(chi.URLParam(r, "postID"))
@@ -979,7 +1138,32 @@ func (srv *Server) postRedirect(w http.ResponseWriter, r *http.Request) {
 		srv.notFound(w, r)
 		return
 	}
-	rank := srv.Store.ZCountUpTo(repo.ThreadPostsKey(threadID), float64(post.Date.Unix()))
+	thread, ok := srv.Repos.Threads.Get(threadID)
+	me := srv.me(r)
+	if !ok || !srv.canViewThreadContent(r, me, thread) {
+		srv.notFound(w, r)
+		return
+	}
+	canApprove := srv.can(r, me, perm.ScopeNode, thread.NodeID, perm.KeyPostApprove)
+	canModerate := srv.can(r, me, perm.ScopeNode, thread.NodeID, perm.KeyPostHide)
+	rank := 0
+	foundTarget := false
+	for _, candidateID := range srv.Repos.Posts.List(threadID, 0, srv.Store.ZCard(repo.ThreadPostsKey(threadID))) {
+		candidate, found := srv.Repos.Posts.Get(candidateID)
+		if !found || candidate.State == domain.PostDeleted || candidate.State == domain.PostHidden && !canModerate ||
+			candidate.State == domain.PostPending && !canApprove && (me == nil || me.ID != candidate.UserID) {
+			continue
+		}
+		rank++
+		if candidateID == postID {
+			foundTarget = true
+			break
+		}
+	}
+	if !foundTarget {
+		srv.notFound(w, r)
+		return
+	}
 	page := (rank-1)/pageSize + 1
 	if page < 1 {
 		page = 1
@@ -1007,7 +1191,11 @@ func (srv *Server) reply(w http.ResponseWriter, r *http.Request) {
 		srv.notFound(w, r)
 		return
 	}
-	if !srv.can(r, me, perm.ScopeNode, th.NodeID, perm.KeyForumReply) {
+	if th.Status != domain.ThreadOpen || th.DiscussionState != domain.DiscussionVisible {
+		srv.deny(w, r, "Bu konuya şu anda yanıt yazılamıyor.")
+		return
+	}
+	if !srv.can(r, me, perm.ScopeNode, th.NodeID, perm.KeyForumView) || !srv.can(r, me, perm.ScopeNode, th.NodeID, perm.KeyForumReply) {
 		srv.deny(w, r, "Bu foruma yanıt yazma izniniz yok.")
 		return
 	}
@@ -1021,9 +1209,15 @@ func (srv *Server) reply(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/t/"+itoa(threadID), http.StatusSeeOther)
 		return
 	}
-	post, err := srv.Repos.Posts.Create(threadID, me.ID, msg)
+	approved := srv.can(r, me, perm.ScopeNode, th.NodeID, perm.KeyReplyNoApproval)
+	post, err := srv.Repos.Posts.CreateWithApproval(threadID, me.ID, msg, approved)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	_ = srv.Repos.Posts.SetClientIP(post.ID, auth.HashIP(r.RemoteAddr))
+	if !approved {
+		http.Redirect(w, r, fmt.Sprintf("/t/%s?pending=1#post-%s", itoa(threadID), itoa(post.ID)), http.StatusSeeOther)
 		return
 	}
 	rank := srv.Store.ZCountUpTo(repo.ThreadPostsKey(threadID), float64(post.Date.Unix()))
@@ -1046,13 +1240,14 @@ func (srv *Server) editPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	post, ok := srv.Repos.Posts.Get(postID)
-	_, threadOK := srv.Repos.Threads.Get(threadID)
-	if !ok || !threadOK || post.ThreadID != threadID || post.State != 0 {
+	thread, threadOK := srv.Repos.Threads.Get(threadID)
+	if !ok || !threadOK || post.ThreadID != threadID || post.State != domain.PostVisible || !srv.canViewThreadContent(r, me, thread) {
 		srv.notFound(w, r)
 		return
 	}
 	isAdmin := srv.can(r, me, perm.ScopeGlobal, 0, perm.KeyAdmin)
-	if (me.ID != post.UserID || time.Since(post.Date) > 15*time.Minute) && !isAdmin {
+	canEditAny := srv.can(r, me, perm.ScopeNode, thread.NodeID, perm.KeyPostEditAny)
+	if (me.ID != post.UserID || time.Since(post.Date) > 15*time.Minute) && !isAdmin && !canEditAny {
 		srv.deny(w, r, "Bu mesajı düzenleme yetkiniz yok.")
 		return
 	}
@@ -1087,12 +1282,17 @@ func (srv *Server) reportPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	post, ok := srv.Repos.Posts.Get(postID)
-	if !ok || post.ThreadID != threadID || post.State != 0 {
+	thread, threadOK := srv.Repos.Threads.Get(threadID)
+	if !ok || !threadOK || post.ThreadID != threadID || post.State != domain.PostVisible || !srv.canViewThreadContent(r, me, thread) {
 		srv.notFound(w, r)
 		return
 	}
 	if post.UserID == me.ID {
 		srv.deny(w, r, "Kendi mesajınızı raporlayamazsınız.")
+		return
+	}
+	if !srv.can(r, me, perm.ScopeNode, thread.NodeID, perm.KeyPostReport) {
+		srv.deny(w, r, "Mesaj raporlama izniniz yok.")
 		return
 	}
 	if ok, retry := srv.D.RL.Allow("report", itoa(me.ID), 10, time.Hour); !ok {
@@ -1124,7 +1324,7 @@ func (srv *Server) deletePost(w http.ResponseWriter, r *http.Request) {
 	}
 	post, ok := srv.Repos.Posts.Get(postID)
 	thread, threadOK := srv.Repos.Threads.Get(threadID)
-	if !ok || !threadOK || post.ThreadID != threadID || post.State != 0 {
+	if !ok || !threadOK || post.ThreadID != threadID || post.State != domain.PostVisible || !srv.canViewThreadContent(r, me, thread) {
 		srv.notFound(w, r)
 		return
 	}
@@ -1167,12 +1367,13 @@ func (srv *Server) react(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	post, ok := srv.Repos.Posts.Get(postID)
-	if !ok || post.ThreadID != threadID || post.State != 0 {
+	if !ok || post.ThreadID != threadID || post.State != domain.PostVisible {
 		srv.notFound(w, r)
 		return
 	}
 	thread, ok := srv.Repos.Threads.Get(threadID)
-	if !ok || thread.Status != domain.ThreadOpen || !srv.can(r, me, perm.ScopeNode, thread.NodeID, perm.KeyForumReply) {
+	if !ok || thread.Status != domain.ThreadOpen || thread.DiscussionState != domain.DiscussionVisible ||
+		!srv.canViewThreadContent(r, me, thread) || !srv.can(r, me, perm.ScopeNode, thread.NodeID, perm.KeyPostReact) {
 		srv.deny(w, r, "Bu mesaja tepki verme izniniz yok.")
 		return
 	}
@@ -1188,10 +1389,188 @@ func (srv *Server) react(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, back, http.StatusSeeOther)
 }
 
+func (srv *Server) moderateThread(w http.ResponseWriter, r *http.Request) {
+	me := srv.requireAuth(w, r)
+	if me == nil {
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "invalid form", http.StatusBadRequest)
+		return
+	}
+	if !csrfOK(r, r.FormValue("csrf")) {
+		srv.deny(w, r, srv.uiLocale().Text("auth.bad_csrf"))
+		return
+	}
+	threadID := parseID(chi.URLParam(r, "threadID"))
+	thread, ok := srv.Repos.Threads.Get(threadID)
+	if !ok || thread.Status == domain.ThreadDeleted {
+		srv.notFound(w, r)
+		return
+	}
+	if !srv.canViewThreadContent(r, me, thread) {
+		srv.notFound(w, r)
+		return
+	}
+	if allowed, retry := srv.D.RL.Allow("moderate-thread", itoa(me.ID), 20, time.Minute); !allowed {
+		srv.tooMany(w, r, retry)
+		return
+	}
+	var err error
+	switch r.FormValue("action") {
+	case "hide", "restore":
+		if !srv.can(r, me, perm.ScopeNode, thread.NodeID, perm.KeyThreadHide) {
+			srv.deny(w, r, srv.uiLocale().Text("moderation.denied"))
+			return
+		}
+		state := domain.DiscussionHidden
+		if r.FormValue("action") == "restore" {
+			state = domain.DiscussionVisible
+		}
+		err = srv.Repos.Threads.SetDiscussionState(threadID, state)
+	case "lock", "unlock":
+		if !srv.can(r, me, perm.ScopeNode, thread.NodeID, perm.KeyThreadLock) {
+			srv.deny(w, r, srv.uiLocale().Text("moderation.denied"))
+			return
+		}
+		err = srv.Repos.Threads.SetLocked(threadID, r.FormValue("action") == "lock")
+	case "rename":
+		if !srv.can(r, me, perm.ScopeNode, thread.NodeID, perm.KeyThreadRename) {
+			srv.deny(w, r, srv.uiLocale().Text("moderation.denied"))
+			return
+		}
+		err = srv.Repos.Threads.Rename(threadID, r.FormValue("title"))
+	case "sticky", "unsticky":
+		if !srv.can(r, me, perm.ScopeNode, thread.NodeID, perm.KeyThreadSticky) {
+			srv.deny(w, r, srv.uiLocale().Text("moderation.denied"))
+			return
+		}
+		err = srv.Repos.Threads.SetSticky(threadID, r.FormValue("action") == "sticky")
+	case "tags":
+		if !srv.can(r, me, perm.ScopeNode, thread.NodeID, perm.KeyThreadTag) {
+			srv.deny(w, r, srv.uiLocale().Text("moderation.denied"))
+			return
+		}
+		names := strings.Split(r.FormValue("tags"), ",")
+		if len(names) > 5 {
+			http.Error(w, "Bir konuya en fazla 5 etiket eklenebilir.", http.StatusBadRequest)
+			return
+		}
+		for _, name := range names {
+			if utf8.RuneCountInString(strings.TrimSpace(name)) > 32 {
+				http.Error(w, "Etiketler en fazla 32 karakter olabilir.", http.StatusBadRequest)
+				return
+			}
+		}
+		err = srv.Repos.Tags.ApplyNames(threadID, names)
+	default:
+		http.Error(w, "invalid moderation action", http.StatusBadRequest)
+		return
+	}
+	if err != nil {
+		http.Error(w, "Moderasyon işlemi tamamlanamadı.", http.StatusConflict)
+		return
+	}
+	http.Redirect(w, r, "/t/"+itoa(threadID), http.StatusSeeOther)
+}
+
+func (srv *Server) moderatePost(w http.ResponseWriter, r *http.Request) {
+	me := srv.requireAuth(w, r)
+	if me == nil {
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "invalid form", http.StatusBadRequest)
+		return
+	}
+	if !csrfOK(r, r.FormValue("csrf")) {
+		srv.deny(w, r, srv.uiLocale().Text("auth.bad_csrf"))
+		return
+	}
+	threadID, postID := parseID(chi.URLParam(r, "threadID")), parseID(chi.URLParam(r, "postID"))
+	post, ok := srv.Repos.Posts.Get(postID)
+	thread, threadOK := srv.Repos.Threads.Get(threadID)
+	if !ok || !threadOK || post.ThreadID != threadID || !srv.canViewThreadContent(r, me, thread) {
+		srv.notFound(w, r)
+		return
+	}
+	if !srv.can(r, me, perm.ScopeNode, thread.NodeID, perm.KeyPostHide) {
+		srv.deny(w, r, srv.uiLocale().Text("moderation.denied"))
+		return
+	}
+	if allowed, retry := srv.D.RL.Allow("moderate-post", itoa(me.ID), 30, time.Minute); !allowed {
+		srv.tooMany(w, r, retry)
+		return
+	}
+	var err error
+	switch r.FormValue("action") {
+	case "hide":
+		err = srv.Repos.Posts.Hide(postID)
+	case "restore":
+		err = srv.Repos.Posts.Restore(postID)
+	default:
+		http.Error(w, "invalid moderation action", http.StatusBadRequest)
+		return
+	}
+	if err != nil {
+		http.Error(w, "Mesaj moderasyonu tamamlanamadı.", http.StatusConflict)
+		return
+	}
+	http.Redirect(w, r, "/t/"+itoa(threadID)+"#post-"+itoa(postID), http.StatusSeeOther)
+}
+
+func (srv *Server) moderateUser(w http.ResponseWriter, r *http.Request) {
+	me := srv.requireAuth(w, r)
+	if me == nil {
+		return
+	}
+	if err := r.ParseForm(); err != nil || !csrfOK(r, r.FormValue("csrf")) {
+		srv.deny(w, r, srv.uiLocale().Text("auth.bad_csrf"))
+		return
+	}
+	targetID := parseID(chi.URLParam(r, "userID"))
+	if targetID == me.ID {
+		srv.deny(w, r, srv.uiLocale().Text("moderation.self_suspend"))
+		return
+	}
+	if !srv.can(r, me, perm.ScopeGlobal, 0, perm.KeyUserSuspend) {
+		srv.deny(w, r, srv.uiLocale().Text("moderation.denied"))
+		return
+	}
+	target, ok := srv.D.Users.GetByID(targetID)
+	if !ok {
+		srv.notFound(w, r)
+		return
+	}
+	actorIsAdmin := srv.can(r, me, perm.ScopeGlobal, 0, perm.KeyAdmin)
+	if !actorIsAdmin && srv.D.Perms.Effective(target.ID, target.GroupIDs, perm.ScopeGlobal, 0, perm.KeyAdmin) {
+		srv.deny(w, r, srv.uiLocale().Text("moderation.cannot_suspend_admin"))
+		return
+	}
+	if allowed, retry := srv.D.RL.Allow("moderate-user", itoa(me.ID), 10, time.Minute); !allowed {
+		srv.tooMany(w, r, retry)
+		return
+	}
+	action := r.FormValue("action")
+	if action != "suspend" && action != "activate" {
+		http.Error(w, "invalid user moderation action", http.StatusBadRequest)
+		return
+	}
+	if err := srv.D.Users.SetSuspended(targetID, action == "suspend"); err != nil {
+		http.Error(w, srv.uiLocale().Text("admin.user_save_failed"), http.StatusInternalServerError)
+		return
+	}
+	if err := srv.recordAdminAudit(me.ID, "audit.user_"+action, "user", targetID, target.Username); err != nil {
+		http.Error(w, srv.uiLocale().Text("admin.user_save_failed"), http.StatusInternalServerError)
+		return
+	}
+	http.Redirect(w, r, "/members/"+itoa(targetID), http.StatusSeeOther)
+}
+
 func (srv *Server) newThreadForm(w http.ResponseWriter, r *http.Request) {
 	nodeID := parseID(chi.URLParam(r, "nodeID"))
 	node, ok := srv.Repos.Nodes.Get(nodeID)
-	if !ok {
+	if !ok || node.Type != domain.TypeForum {
 		srv.notFound(w, r)
 		return
 	}
@@ -1206,6 +1585,12 @@ func (srv *Server) newThreadForm(w http.ResponseWriter, r *http.Request) {
 		srv.deny(w, r, "Bu forumda konu açma izniniz yok.")
 		return
 	}
+	if !srv.can(r, d.Me, perm.ScopeNode, nodeID, perm.KeyForumView) {
+		srv.deny(w, r, "Bu forumu görüntüleme izniniz yok.")
+		return
+	}
+	d.CanTagThread = srv.can(r, d.Me, perm.ScopeNode, nodeID, perm.KeyThreadTag)
+	d.RequiresApproval = !srv.can(r, d.Me, perm.ScopeNode, nodeID, perm.KeyThreadNoApproval)
 	d.Node = node
 	d.PrefixOptions = srv.prefixes()
 	srv.render(w, "newthread", d)
@@ -1225,8 +1610,22 @@ func (srv *Server) createThread(w http.ResponseWriter, r *http.Request) {
 		srv.deny(w, r, "Oturum doğrulaması başarısız (CSRF). Sayfayı yenileyip tekrar deneyin.")
 		return
 	}
+	node, nodeOK := srv.Repos.Nodes.Get(nodeID)
+	if !nodeOK || node.Type != domain.TypeForum {
+		srv.notFound(w, r)
+		return
+	}
 	if !srv.can(r, me, perm.ScopeNode, nodeID, perm.KeyForumThread) {
 		srv.deny(w, r, "Bu forumda konu açma izniniz yok.")
+		return
+	}
+	if !srv.can(r, me, perm.ScopeNode, nodeID, perm.KeyForumView) {
+		srv.deny(w, r, "Bu forumda konu açma izniniz yok.")
+		return
+	}
+	tagInput := strings.TrimSpace(r.FormValue("tags"))
+	if tagInput != "" && !srv.can(r, me, perm.ScopeNode, nodeID, perm.KeyThreadTag) {
+		srv.deny(w, r, "Bu forumda konu etiketleme izniniz yok.")
 		return
 	}
 	if ok, retry := srv.D.RL.Allow("thread", itoa(me.ID), 3, 60*time.Second); !ok {
@@ -1279,11 +1678,13 @@ func (srv *Server) createThread(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Anket seçenekleri için soru da gereklidir.", http.StatusBadRequest)
 		return
 	}
-	th, _, err := srv.Repos.Threads.Create(nodeID, me.ID, title, msg)
+	approved := srv.can(r, me, perm.ScopeNode, nodeID, perm.KeyThreadNoApproval)
+	th, firstPost, err := srv.Repos.Threads.CreateWithApproval(nodeID, me.ID, title, msg, approved)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	_ = srv.Repos.Posts.SetClientIP(firstPost.ID, auth.HashIP(r.RemoteAddr))
 	if prefixID != 0 {
 		th.PrefixID = prefixID
 		if err := srv.Store.PutJSON(fmt.Sprintf("thread:%d", th.ID), th); err != nil {
@@ -1291,9 +1692,11 @@ func (srv *Server) createThread(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if err := srv.Repos.Tags.ApplyNames(th.ID, tagNames); err != nil {
-		http.Error(w, "Etiketler kaydedilemedi.", http.StatusInternalServerError)
-		return
+	if len(tagNames) > 0 {
+		if err := srv.Repos.Tags.ApplyNames(th.ID, tagNames); err != nil {
+			http.Error(w, "Etiketler kaydedilemedi.", http.StatusInternalServerError)
+			return
+		}
 	}
 	if pollQuestion != "" {
 		if err := srv.Repos.Polls.Create(th.ID, pollQuestion, pollOptions, pollMultiple); err != nil {
@@ -1301,7 +1704,11 @@ func (srv *Server) createThread(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	http.Redirect(w, r, "/t/"+itoa(th.ID), http.StatusSeeOther)
+	location := "/t/" + itoa(th.ID)
+	if !approved {
+		location += "?pending=1"
+	}
+	http.Redirect(w, r, location, http.StatusSeeOther)
 }
 
 func parsePollOptions(raw string) []string {
@@ -1348,7 +1755,7 @@ func (srv *Server) votePoll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	thread, ok := srv.Repos.Threads.Get(threadID)
-	if !ok || !srv.can(r, me, perm.ScopeNode, thread.NodeID, perm.KeyForumView) {
+	if !ok || thread.DiscussionState != domain.DiscussionVisible || !srv.canViewThreadContent(r, me, thread) {
 		srv.notFound(w, r)
 		return
 	}
@@ -1402,20 +1809,67 @@ func (srv *Server) memberProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	d := srv.base(r, user.Username+" profili", "", []Crumb{{Title: "Üyeler"}, {Title: user.Username}})
-	d.Profile = user
+	d.CanViewLastSeen = srv.can(r, d.Me, perm.ScopeGlobal, 0, perm.KeyUserLastSeen) || d.Me != nil && d.Me.ID == user.ID
+	profile := *user
+	if d.CanViewLastSeen {
+		d.ProfileLastSeen = user.LastSeen
+		d.ProfileHasLastSeen = !user.LastSeen.IsZero()
+	} else {
+		profile.LastSeen = time.Time{}
+	}
+	d.Profile = &profile
+	d.CanSuspendUser = d.Me != nil && d.Me.ID != user.ID && srv.can(r, d.Me, perm.ScopeGlobal, 0, perm.KeyUserSuspend)
 	d.ProfilePostCount = srv.Repos.Posts.CountByUser(userID)
 	for _, id := range srv.Repos.Posts.RecentByUser(userID, 10) {
 		post, found := srv.Repos.Posts.Get(id)
-		if !found || post.State != 0 {
+		if !found || post.State != domain.PostVisible {
 			continue
 		}
 		thread, found := srv.Repos.Threads.Get(post.ThreadID)
-		if !found || thread.Status == domain.ThreadDeleted || !srv.can(r, d.Me, perm.ScopeNode, thread.NodeID, perm.KeyForumView) {
+		if !found || thread.Status == domain.ThreadDeleted || thread.DiscussionState != domain.DiscussionVisible || !srv.can(r, d.Me, perm.ScopeNode, thread.NodeID, perm.KeyForumView) {
 			continue
 		}
 		d.ProfilePosts = append(d.ProfilePosts, profilePostRow{ThreadID: thread.ID, ThreadTitle: thread.Title, Date: post.Date, Message: template.HTML(post.MessageRendered)})
 	}
 	srv.render(w, "member", d)
+}
+
+func (srv *Server) searchMembers(w http.ResponseWriter, r *http.Request) {
+	d := srv.base(r, srv.uiLocale().Text("members.search_title"), "search", nil)
+	if !srv.can(r, d.Me, perm.ScopeGlobal, 0, perm.KeySearchUsers) {
+		if d.Me == nil {
+			srv.requireAuth(w, r)
+			return
+		}
+		srv.deny(w, r, d.Locale.Text("members.search_denied"))
+		return
+	}
+	d.CanViewLastSeen = srv.can(r, d.Me, perm.ScopeGlobal, 0, perm.KeyUserLastSeen)
+	d.MemberQuery = strings.TrimSpace(r.URL.Query().Get("q"))
+	if utf8.RuneCountInString(d.MemberQuery) > 80 {
+		http.Error(w, d.Locale.Text("members.query_long"), http.StatusBadRequest)
+		return
+	}
+	if d.MemberQuery != "" {
+		bucket := "guest:" + auth.HashIP(r.RemoteAddr)
+		if d.Me != nil {
+			bucket = "user:" + itoa(d.Me.ID)
+		}
+		if allowed, retry := srv.D.RL.Allow("member-search", bucket, 10, 30*time.Second); !allowed {
+			srv.tooMany(w, r, retry)
+			return
+		}
+		for _, user := range srv.D.Users.Search(d.MemberQuery, 50) {
+			showLastSeen := d.CanViewLastSeen || d.Me != nil && d.Me.ID == user.ID
+			row := memberSearchRow{ID: user.ID, Username: user.Username, Title: user.Title, ShowLastSeen: showLastSeen}
+			if showLastSeen {
+				row.LastSeen = user.LastSeen
+				row.HasLastSeen = !user.LastSeen.IsZero()
+			}
+			d.MemberResults = append(d.MemberResults, row)
+		}
+	}
+	srv.render(w, "member_search", d)
 }
 
 func (srv *Server) saveMemberProfile(w http.ResponseWriter, r *http.Request) {
@@ -1455,6 +1909,7 @@ func (srv *Server) saveMemberProfile(w http.ResponseWriter, r *http.Request) {
 
 func (srv *Server) search(w http.ResponseWriter, r *http.Request) {
 	d := srv.base(r, srv.uiLocale().Text("search.title"), "search", nil)
+	d.CanSearchMembers = srv.can(r, d.Me, perm.ScopeGlobal, 0, perm.KeySearchUsers)
 	if !srv.can(r, d.Me, perm.ScopeGlobal, 0, perm.KeySearch) {
 		if d.Me == nil {
 			srv.requireAuth(w, r)

@@ -441,3 +441,80 @@ func TestRebuildContentTenK(t *testing.T) {
 		t.Errorf("thread 42 after rebuild: ok=%v", ok)
 	}
 }
+
+func TestHideAndRestoreDiscussionKeepsPublicNodeCountersAndLastPost(t *testing.T) {
+	s, _ := openTestStore(t)
+	r := New(s)
+	category, err := r.Nodes.CreateCategory("Category", "category", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	forum, err := r.Nodes.CreateForum(category.ID, "Forum", "forum", "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	thread, first, err := r.Threads.Create(forum.ID, 10, "Visible discussion", "first post")
+	if err != nil {
+		t.Fatal(err)
+	}
+	reply, err := r.Posts.Create(thread.ID, 11, "last reply")
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertNode := func(wantThreads, wantPosts int, wantLastPost uint64) {
+		t.Helper()
+		node, ok := r.Nodes.Get(forum.ID)
+		if !ok {
+			t.Fatal("forum missing")
+		}
+		if node.ThreadCount != wantThreads || node.PostCount != wantPosts {
+			t.Fatalf("node counters = threads:%d posts:%d, want threads:%d posts:%d", node.ThreadCount, node.PostCount, wantThreads, wantPosts)
+		}
+		if wantLastPost == 0 {
+			if node.LastPost != nil {
+				t.Fatalf("node last post = %+v, want nil", node.LastPost)
+			}
+		} else if node.LastPost == nil || node.LastPost.PostID != wantLastPost {
+			t.Fatalf("node last post = %+v, want post %d", node.LastPost, wantLastPost)
+		}
+	}
+	assertNode(1, 2, reply.ID)
+	if err := r.Threads.SetDiscussionState(thread.ID, domain.DiscussionHidden); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Posts.Hide(reply.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Threads.IncrementViews(thread.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Threads.Rename(thread.ID, "Renamed while hidden"); err != nil {
+		t.Fatal(err)
+	}
+	assertNode(0, 0, 0)
+	if s.ZCard(NodeThreadsKey(forum.ID)) != 0 || s.ZCard(IdxLatestThreads) != 0 || s.ZCard(IdxLatestPosts) != 0 {
+		t.Fatal("hidden discussion remains in a public index")
+	}
+	if _, indexed := s.ZScoreOf(nodeThreadsViewsIdx(forum.ID), thread.ID); indexed {
+		t.Fatal("hidden discussion re-entered the views index")
+	}
+	if hits := s.FTSearch("last reply", 10); len(hits) != 0 {
+		t.Fatalf("hidden discussion remains in full-text search: %+v", hits)
+	}
+	if err := r.Threads.SetDiscussionState(thread.ID, domain.DiscussionVisible); err != nil {
+		t.Fatal(err)
+	}
+	assertNode(1, 1, first.ID)
+	if s.ZCard(NodeThreadsKey(forum.ID)) != 1 || s.ZCard(IdxLatestThreads) != 1 || s.ZCard(IdxLatestPosts) != 1 {
+		t.Fatal("restored discussion indexes were not rebuilt")
+	}
+	if hits := s.FTSearch("first post", 10); len(hits) != 1 || hits[0].DocID != "post:"+strconv.FormatUint(first.ID, 10) {
+		t.Fatalf("restored discussion missing from full-text search: %+v", hits)
+	}
+	if hits := s.FTSearch("last reply", 10); len(hits) != 0 {
+		t.Fatalf("hidden reply re-entered full-text search: %+v", hits)
+	}
+	if first.State != domain.PostVisible {
+		t.Fatalf("first post changed state during discussion visibility transition: %d", first.State)
+	}
+}

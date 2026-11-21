@@ -2,6 +2,7 @@ package repo
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/buraksocial/IgnisForum/internal/bbcode"
@@ -18,8 +19,13 @@ type ThreadRepo struct {
 // Create starts a thread with its first post. Write order: both primaries, then
 // indexes, then node counters, then FT (§3.6).
 func (t *ThreadRepo) Create(nodeID, userID uint64, title, rawMessage string) (*domain.Thread, *domain.Post, error) {
+	return t.CreateWithApproval(nodeID, userID, title, rawMessage, true)
+}
+
+func (t *ThreadRepo) CreateWithApproval(nodeID, userID uint64, title, rawMessage string, approved bool) (*domain.Thread, *domain.Post, error) {
 	s := t.r.S
-	if _, ok := t.r.Nodes.Get(nodeID); !ok {
+	node, ok := t.r.Nodes.Get(nodeID)
+	if !ok || node.Type != domain.TypeForum {
 		return nil, nil, fmt.Errorf("node %d not found", nodeID)
 	}
 	now := time.Now().UTC()
@@ -31,18 +37,25 @@ func (t *ThreadRepo) Create(nodeID, userID uint64, title, rawMessage string) (*d
 
 	thread := &domain.Thread{
 		ID: threadID, NodeID: nodeID, Title: title,
-		Slug:        slugFor(title, threadID),
-		UserID:      userID,
-		FirstPostID: postID,
-		PostCount:   1,
-		Status:      domain.ThreadOpen,
-		LastPost:    &domain.LastPostRef{T: now, PostID: postID, UserID: userID},
-		Date:        now,
+		Slug:            slugFor(title, threadID),
+		UserID:          userID,
+		FirstPostID:     postID,
+		PostCount:       1,
+		Status:          domain.ThreadOpen,
+		DiscussionState: domain.DiscussionVisible,
+		LastPost:        &domain.LastPostRef{T: now, PostID: postID, UserID: userID},
+		Date:            now,
 	}
 	post := &domain.Post{
 		ID: postID, ThreadID: threadID, UserID: userID,
 		MessageRaw: rawMessage, MessageRendered: bbcode.Render(rawMessage),
-		Date: now, State: 0,
+		Date: now, State: domain.PostVisible,
+	}
+	if !approved {
+		thread.DiscussionState = domain.DiscussionPending
+		thread.PostCount = 0
+		thread.LastPost = nil
+		post.State = domain.PostPending
 	}
 
 	// 1. PRIMARIES FIRST.
@@ -51,6 +64,12 @@ func (t *ThreadRepo) Create(nodeID, userID uint64, title, rawMessage string) (*d
 	}
 	if err := s.PutJSON(keyPost(postID), post); err != nil {
 		return nil, nil, fmt.Errorf("put post: %w", err)
+	}
+
+	if post.State == domain.PostPending {
+		s.ZAddIdx(IdxPendingPosts, ts(now), post.ID)
+		s.ZAddIdx(ThreadPostsKey(thread.ID), ts(now), post.ID)
+		return thread, post, nil
 	}
 
 	// 2. INDEXES.
@@ -107,6 +126,9 @@ func (t *ThreadRepo) Import(thread *domain.Thread, posts []*domain.Post) error {
 // indexThread adds/updates a thread in every per-node and global thread index.
 func (t *ThreadRepo) indexThread(thread *domain.Thread) {
 	s := t.r.S
+	if thread.Status == domain.ThreadDeleted || thread.DiscussionState != domain.DiscussionVisible {
+		return
+	}
 	lp := thread.LastPost
 	if lp == nil {
 		lp = &domain.LastPostRef{T: thread.Date}
@@ -116,6 +138,19 @@ func (t *ThreadRepo) indexThread(thread *domain.Thread) {
 	s.ZAddIdx(nodeThreadsPostsIdx(thread.NodeID), float64(thread.PostCount), thread.ID)
 	s.ZAddIdx(nodeThreadsVotedIdx(thread.NodeID), float64(thread.LikeScore), thread.ID)
 	s.ZAddIdx(nodeThreadsViewsIdx(thread.NodeID), float64(thread.ViewCount), thread.ID)
+	for _, sortKey := range []string{"last", "new", "posts", "views"} {
+		key := nodeThreadsRankIdx(thread.NodeID, sortKey, thread.Sticky)
+		score := ts(lp.T)
+		switch sortKey {
+		case "new":
+			score = ts(thread.Date)
+		case "posts":
+			score = float64(thread.PostCount)
+		case "views":
+			score = float64(thread.ViewCount)
+		}
+		s.ZAddIdx(key, score, thread.ID)
+	}
 	s.ZAddIdx(IdxLatestThreads, ts(lp.T), thread.ID)
 	s.ZAddIdx(userThreadsIdx(thread.UserID), ts(thread.Date), thread.ID)
 	for _, tagID := range thread.TagIDs {
@@ -131,7 +166,9 @@ func (t *ThreadRepo) BumpThread(threadID uint64, postID, userID uint64, when tim
 		return err
 	}
 	thread.PostCount++
-	thread.LastPost = &domain.LastPostRef{T: when, PostID: postID, UserID: userID}
+	if thread.LastPost == nil || when.After(thread.LastPost.T) {
+		thread.LastPost = &domain.LastPostRef{T: when, PostID: postID, UserID: userID}
+	}
 	thread.Version++
 	if err := s.PutJSON(keyThread(threadID), &thread); err != nil {
 		return err
@@ -153,27 +190,186 @@ func (t *ThreadRepo) IncrementViews(threadID uint64) error {
 	if err := s.PutJSON(keyThread(threadID), &thread); err != nil {
 		return err
 	}
-	s.ZAddIdx(nodeThreadsViewsIdx(thread.NodeID), float64(thread.ViewCount), thread.ID)
+	if thread.Status != domain.ThreadDeleted && thread.DiscussionState == domain.DiscussionVisible {
+		s.ZAddIdx(nodeThreadsViewsIdx(thread.NodeID), float64(thread.ViewCount), thread.ID)
+	}
 	return nil
 }
 
 // List returns a page of thread IDs for a node in the requested order.
 // sort: "last" (default), "new", "posts", "views".
 func (t *ThreadRepo) List(nodeID uint64, sort string, offset, n int) []uint64 {
-	var key string
 	switch sort {
-	case "", "last":
-		key = NodeThreadsKey(nodeID)
-	case "new":
-		key = nodeThreadsNewIdx(nodeID)
-	case "posts":
-		key = nodeThreadsPostsIdx(nodeID)
-	case "views":
-		key = nodeThreadsViewsIdx(nodeID)
+	case "", "last", "new", "posts", "views":
 	default:
 		return nil
 	}
-	return t.r.S.ZPage(key, offset, n)
+	if n <= 0 {
+		return nil
+	}
+	stickyKey := nodeThreadsRankIdx(nodeID, sortOrLast(sort), true)
+	normalKey := nodeThreadsRankIdx(nodeID, sortOrLast(sort), false)
+	stickyCount := t.r.S.ZCard(stickyKey)
+	if offset < stickyCount {
+		out := t.r.S.ZPage(stickyKey, offset, n)
+		if len(out) < n {
+			out = append(out, t.r.S.ZPage(normalKey, 0, n-len(out))...)
+		}
+		return out
+	}
+	return t.r.S.ZPage(normalKey, offset-stickyCount, n)
+}
+
+func sortOrLast(sortKey string) string {
+	if sortKey == "" {
+		return "last"
+	}
+	return sortKey
+}
+
+// SetDiscussionState hides/restores a discussion without conflating it with
+// deletion. Hidden threads are omitted from every public thread index.
+func (t *ThreadRepo) SetDiscussionState(id uint64, state int) error {
+	thread, ok := t.Get(id)
+	if !ok || thread.Status == domain.ThreadDeleted {
+		return fmt.Errorf("thread %d not found", id)
+	}
+	if state != domain.DiscussionVisible && state != domain.DiscussionHidden {
+		return fmt.Errorf("invalid discussion state")
+	}
+	if thread.DiscussionState == state {
+		return nil
+	}
+	previousState := thread.DiscussionState
+	if state == domain.DiscussionVisible {
+		if first, found := t.r.Posts.Get(thread.FirstPostID); found && first.State == domain.PostPending {
+			state = domain.DiscussionPending
+		}
+	}
+	thread.DiscussionState = state
+	thread.Version++
+	if err := t.r.S.PutJSON(keyThread(id), thread); err != nil {
+		return err
+	}
+	t.removeThreadIndexes(thread)
+	t.r.Posts.RefreshThreadVisibility(thread)
+	t.indexThread(thread)
+	if (previousState == domain.DiscussionVisible) != (state == domain.DiscussionVisible) {
+		if err := t.adjustNodeVisibility(thread, state == domain.DiscussionVisible); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// adjustNodeVisibility keeps public forum counters and last-post cards in sync
+// when a discussion enters or leaves the public indexes.
+func (t *ThreadRepo) adjustNodeVisibility(thread *domain.Thread, visible bool) error {
+	node, ok := t.r.Nodes.Get(thread.NodeID)
+	if !ok {
+		return fmt.Errorf("node %d not found", thread.NodeID)
+	}
+	if visible {
+		node.ThreadCount++
+		node.PostCount += thread.PostCount
+		if thread.LastPost != nil && (node.LastPost == nil || thread.LastPost.T.After(node.LastPost.T)) {
+			node.LastPost = thread.LastPost
+		}
+	} else {
+		node.ThreadCount--
+		node.PostCount -= thread.PostCount
+		if node.ThreadCount < 0 {
+			node.ThreadCount = 0
+		}
+		if node.PostCount < 0 {
+			node.PostCount = 0
+		}
+		if node.LastPost != nil && thread.LastPost != nil && node.LastPost.PostID == thread.LastPost.PostID {
+			node.LastPost = t.r.Posts.latestVisibleInNode(node.ID)
+		}
+	}
+	return t.r.S.PutJSON(keyNode(node.ID), node)
+}
+
+func (t *ThreadRepo) SetLocked(id uint64, locked bool) error {
+	thread, ok := t.Get(id)
+	if !ok || thread.Status == domain.ThreadDeleted {
+		return fmt.Errorf("thread %d not found", id)
+	}
+	if locked {
+		thread.Status = domain.ThreadClosed
+	} else {
+		thread.Status = domain.ThreadOpen
+	}
+	thread.Version++
+	t.removeThreadIndexes(thread)
+	if err := t.r.S.PutJSON(keyThread(id), thread); err != nil {
+		return err
+	}
+	t.indexThread(thread)
+	return nil
+}
+
+func (t *ThreadRepo) Rename(id uint64, title string) error {
+	thread, ok := t.Get(id)
+	if !ok || thread.Status == domain.ThreadDeleted {
+		return fmt.Errorf("thread %d not found", id)
+	}
+	title = strings.TrimSpace(title)
+	if title == "" || len([]rune(title)) > 160 {
+		return fmt.Errorf("invalid thread title")
+	}
+	thread.Title = title
+	thread.Slug = slugFor(title, id)
+	thread.Version++
+	if err := t.r.S.PutJSON(keyThread(id), thread); err != nil {
+		return err
+	}
+	for _, postID := range t.r.Posts.List(id, 0, t.r.S.ZCard(ThreadPostsKey(id))) {
+		post, ok := t.r.Posts.Get(postID)
+		if !ok || post.State != domain.PostVisible {
+			continue
+		}
+		if thread.DiscussionState == domain.DiscussionVisible {
+			t.r.S.FTAdd(fmt.Sprintf("post:%d", post.ID), title+" "+post.MessageRendered)
+		} else {
+			t.r.S.FTRemove(fmt.Sprintf("post:%d", post.ID))
+		}
+	}
+	return nil
+}
+
+func (t *ThreadRepo) SetSticky(id uint64, sticky bool) error {
+	thread, ok := t.Get(id)
+	if !ok || thread.Status == domain.ThreadDeleted {
+		return fmt.Errorf("thread %d not found", id)
+	}
+	t.removeThreadIndexes(thread)
+	thread.Sticky = sticky
+	thread.Version++
+	if err := t.r.S.PutJSON(keyThread(id), thread); err != nil {
+		return err
+	}
+	t.indexThread(thread)
+	return nil
+}
+
+func (t *ThreadRepo) removeThreadIndexes(thread *domain.Thread) {
+	s := t.r.S
+	s.ZRem(NodeThreadsKey(thread.NodeID), thread.ID)
+	s.ZRem(nodeThreadsNewIdx(thread.NodeID), thread.ID)
+	s.ZRem(nodeThreadsPostsIdx(thread.NodeID), thread.ID)
+	s.ZRem(nodeThreadsVotedIdx(thread.NodeID), thread.ID)
+	s.ZRem(nodeThreadsViewsIdx(thread.NodeID), thread.ID)
+	s.ZRem(IdxLatestThreads, thread.ID)
+	s.ZRem(userThreadsIdx(thread.UserID), thread.ID)
+	for _, sortKey := range []string{"last", "new", "posts", "views"} {
+		s.ZRem(nodeThreadsRankIdx(thread.NodeID, sortKey, true), thread.ID)
+		s.ZRem(nodeThreadsRankIdx(thread.NodeID, sortKey, false), thread.ID)
+	}
+	for _, tagID := range thread.TagIDs {
+		s.ZRem(tagThreadsIdx(tagID), thread.ID)
+	}
 }
 
 // Get returns a thread by id.
@@ -193,7 +389,7 @@ func (t *ThreadRepo) rebuildHook(key string, blob []byte) {
 		return
 	}
 	t.r.Polls.rebuildCounts(&thread)
-	if thread.Status == domain.ThreadDeleted {
+	if thread.Status == domain.ThreadDeleted || thread.DiscussionState != domain.DiscussionVisible {
 		return
 	}
 	t.indexThread(&thread)

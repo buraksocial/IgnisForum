@@ -55,13 +55,24 @@ func TestBoundaryEveryKey(t *testing.T) {
 	// Global scope: every key has a definite answer for guest and member.
 	wantGuest := map[string]bool{
 		KeyAccess: true, KeyForumView: true, KeySearch: true,
+		KeySearchUsers:  false,
 		KeyUserRegister: true, // the register gate lives on Guest
-		KeyForumThread:  false, KeyForumReply: false, KeyAdmin: false,
+		KeyForumThread:  false, KeyForumReply: false, KeyPostReport: false,
+		KeyPostReact: false, KeyThreadNoApproval: false, KeyReplyNoApproval: false,
+		KeyPostApprove: false, KeyPostEditAny: false, KeyThreadHide: false,
+		KeyPostHide: false, KeyThreadLock: false, KeyThreadRename: false,
+		KeyThreadSticky: false, KeyThreadTag: false, KeyViewFlags: false,
+		KeyViewPostIP: false, KeyUserSuspend: false, KeyAdmin: false,
 	}
 	wantMember := map[string]bool{
 		KeyAccess: true, KeyForumView: true, KeySearch: true,
-		KeyForumThread: true, KeyForumReply: true,
+		KeyForumThread: true, KeyForumReply: true, KeyPostReport: true, KeyPostReact: true,
 		KeyUserRegister: true, KeyAdmin: false,
+		KeyPostApprove: false, KeyPostEditAny: false, KeyThreadHide: false,
+		KeyPostHide: false, KeyThreadLock: false, KeyThreadRename: false,
+		KeyThreadSticky: false, KeyThreadTag: false, KeyViewFlags: false,
+		KeyViewPostIP: false, KeyUserSuspend: false, KeyUserLastSeen: false,
+		KeySearchUsers: false, KeyThreadNoApproval: false, KeyReplyNoApproval: false,
 	}
 
 	// Allow-cases: the stock matrix already allows the member everywhere but
@@ -106,6 +117,41 @@ func TestBoundaryEveryKey(t *testing.T) {
 	for _, k := range AllKeys {
 		if !e.Effective(1, admin, ScopeGlobal, 0, k) {
 			t.Errorf("admin %s denied", k)
+		}
+	}
+}
+
+func TestBootstrapBackfillsNewPermissionKeysWithoutOverwritingGrants(t *testing.T) {
+	s := openStore(t)
+	e := NewEngine(s)
+	if err := e.Bootstrap(); err != nil {
+		t.Fatal(err)
+	}
+	for _, groupID := range []uint64{GroupGuest, GroupMember, GroupAdmin} {
+		grant := e.GetGrant(groupID, ScopeGlobal, 0)
+		delete(grant, KeyPostReport)
+		delete(grant, KeyPostReact)
+		if groupID == GroupMember {
+			grant[KeyPostReact] = false
+		}
+		if err := e.SetGrant(groupID, ScopeGlobal, 0, grant); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := e.Bootstrap(); err != nil {
+		t.Fatal(err)
+	}
+	want := map[uint64]map[string]bool{
+		GroupGuest:  {KeyPostReport: false, KeyPostReact: false},
+		GroupMember: {KeyPostReport: true, KeyPostReact: false},
+		GroupAdmin:  {KeyPostReport: true, KeyPostReact: true},
+	}
+	for groupID, keys := range want {
+		grant := e.GetGrant(groupID, ScopeGlobal, 0)
+		for key, value := range keys {
+			if got, ok := grant[key]; !ok || got != value {
+				t.Errorf("group %d %s = %v, present=%v; want %v", groupID, key, got, ok, value)
+			}
 		}
 	}
 }

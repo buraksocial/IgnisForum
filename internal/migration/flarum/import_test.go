@@ -41,10 +41,10 @@ func TestImportPreservesSourceIDsSanitizesAndReplays(t *testing.T) {
 	}
 	avatarURL := "https://forum.example.test/assets/avatars/legacy.png"
 	snapshot := testSnapshot(t, map[string][]map[string]any{
-		"users":            {{"id": 5, "username": "legacyuser", "email": "legacy@example.test", "is_email_confirmed": 1, "password": flarumHash, "avatar_url": avatarURL, "joined_at": "2023-01-01 00:00:00", "last_seen_at": nil, "suspended_until": nil, "suspend_reason": nil}},
-		"groups":           {{"id": 1, "name_singular": "Admin", "name_plural": "Admins", "color": nil, "icon": nil, "is_hidden": 0, "created_at": nil}, {"id": 3, "name_singular": "Member", "name_plural": "Members", "color": nil, "icon": nil, "is_hidden": 0, "created_at": nil}},
-		"group_user":       {{"user_id": 5, "group_id": 1, "created_at": nil}},
-		"group_permission": {{"group_id": 3, "permission": "startDiscussion"}, {"group_id": 3, "permission": "discussion.reply"}, {"group_id": 3, "permission": "searchUsers"}},
+		"users":            {{"id": 5, "username": "legacyuser", "email": "legacy@example.test", "is_email_confirmed": 1, "password": flarumHash, "avatar_url": avatarURL, "joined_at": "2023-01-01 00:00:00", "last_seen_at": nil, "suspended_until": nil, "suspend_reason": nil}, {"id": 6, "username": "moderatoruser", "email": "moderator@example.test", "is_email_confirmed": 1, "password": flarumHash, "avatar_url": nil, "joined_at": "2023-01-01 00:00:00", "last_seen_at": nil, "suspended_until": nil, "suspend_reason": nil}},
+		"groups":           {{"id": 1, "name_singular": "Admin", "name_plural": "Admins", "color": nil, "icon": nil, "is_hidden": 0, "created_at": nil}, {"id": 3, "name_singular": "Member", "name_plural": "Members", "color": nil, "icon": nil, "is_hidden": 0, "created_at": nil}, {"id": 4, "name_singular": "Mod", "name_plural": "Mods", "color": nil, "icon": nil, "is_hidden": 0, "created_at": nil}, {"id": 5, "name_singular": "Admin", "name_plural": "Admins custom", "color": nil, "icon": nil, "is_hidden": 0, "created_at": nil}},
+		"group_user":       {{"user_id": 5, "group_id": 1, "created_at": nil}, {"user_id": 6, "group_id": 4, "created_at": nil}},
+		"group_permission": {{"group_id": 3, "permission": "startDiscussion"}, {"group_id": 3, "permission": "discussion.reply"}, {"group_id": 3, "permission": "discussion.flagPosts"}, {"group_id": 3, "permission": "discussion.likePosts"}, {"group_id": 3, "permission": "searchUsers"}, {"group_id": 4, "permission": "discussion.lock"}},
 		"discussions":      {{"id": 100, "title": "Imported topic", "comment_count": 1, "created_at": "2023-02-01 00:00:00", "user_id": 5, "first_post_id": 200, "last_posted_at": "2023-02-02 00:00:00", "last_posted_user_id": 5, "last_post_id": 201, "hidden_at": nil, "slug": "imported-topic", "is_private": 0, "is_approved": 1, "is_sticky": 0, "is_locked": 0}},
 		"posts": {
 			{"id": 200, "discussion_id": 100, "number": 1, "created_at": "2023-02-01 00:00:00", "user_id": 5, "type": "comment", "content": "<p>Hello <strong>world</strong><script>evil()</script></p>", "edited_at": nil, "edited_user_id": nil, "hidden_at": nil, "hidden_user_id": nil, "is_private": 0, "is_approved": 1},
@@ -62,12 +62,30 @@ func TestImportPreservesSourceIDsSanitizesAndReplays(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.Tables["users"].Imported != 1 || report.Tables["discussions"].Imported != 1 || report.Tables["posts"].Imported != 2 || report.Tables["post_likes"].Imported != 1 || report.Tables["group_permission"].Imported != 2 || report.Tables["discussion_user"].Imported != 1 {
+	if report.Tables["users"].Imported != 2 || report.Tables["groups"].Imported != 4 || report.Tables["group_user"].Imported != 2 || report.Tables["discussions"].Imported != 1 || report.Tables["posts"].Imported != 2 || report.Tables["post_likes"].Imported != 1 || report.Tables["group_permission"].Imported != 6 || report.Tables["discussion_user"].Imported != 1 {
 		t.Fatalf("unexpected import counts: %+v", report.Tables)
 	}
 	migratedPerms := perm.NewEngine(s)
 	if !migratedPerms.Effective(6, []uint64{perm.GroupMember}, perm.ScopeGlobal, 0, perm.KeyForumThread) || !migratedPerms.Effective(6, []uint64{perm.GroupMember}, perm.ScopeGlobal, 0, perm.KeyForumReply) {
 		t.Fatal("mapped Flarum member permissions were not applied")
+	}
+	moderatorGroup, ok := migratedPerms.GetGroup(4)
+	if !ok || moderatorGroup.Name != "Mod" || moderatorGroup.System {
+		t.Fatalf("dedicated moderator group = %+v, found=%v", moderatorGroup, ok)
+	}
+	moderator, ok := users.GetByID(6)
+	if !ok || len(moderator.GroupIDs) != 2 || moderator.GroupIDs[0] != 4 || moderator.GroupIDs[1] != perm.GroupMember {
+		t.Fatalf("moderator membership = %+v, found=%v", moderator, ok)
+	}
+	if migratedPerms.Effective(moderator.ID, moderator.GroupIDs, perm.ScopeGlobal, 0, perm.KeyAdmin) {
+		t.Fatal("custom moderator group gained administrator access")
+	}
+	customAdminGroup, ok := migratedPerms.GetGroup(5)
+	if !ok || customAdminGroup.Name != "Admin" || customAdminGroup.System || migratedPerms.Effective(99, []uint64{5}, perm.ScopeGlobal, 0, perm.KeyAdmin) {
+		t.Fatalf("custom group named Admin gained privileged identity: group=%+v found=%v", customAdminGroup, ok)
+	}
+	if !migratedPerms.Effective(6, []uint64{perm.GroupMember}, perm.ScopeGlobal, 0, perm.KeyPostReport) || !migratedPerms.Effective(6, []uint64{perm.GroupMember}, perm.ScopeGlobal, 0, perm.KeyPostReact) {
+		t.Fatal("supported Flarum reporting/reaction grants were not imported")
 	}
 	if _, ok := users.GetByID(5); !ok {
 		t.Fatal("source user ID was not preserved")
@@ -123,13 +141,49 @@ func TestImportPreservesSourceIDsSanitizesAndReplays(t *testing.T) {
 }
 
 func TestModeratorGroupIsNotCollapsedIntoMemberRole(t *testing.T) {
-	for _, name := range []string{"Mod", "moderator", "Moderators"} {
-		if _, ok := mapGroup(name); ok {
-			t.Errorf("moderator group %q was mapped to a different privilege role", name)
+	if _, ok := mapGroup(4); ok {
+		t.Fatal("custom moderator group was mapped to a built-in role")
+	}
+	if got, ok := mapGroup(3); !ok || got != perm.GroupMember {
+		t.Fatalf("member role mapping = %d, %v", got, ok)
+	}
+}
+
+func TestBuiltInGroupMappingUsesReservedIDs(t *testing.T) {
+	for sourceID, want := range map[uint64]uint64{1: perm.GroupAdmin, 2: perm.GroupGuest, 3: perm.GroupMember} {
+		if got, ok := mapGroup(sourceID); !ok || got != want {
+			t.Errorf("built-in group %d mapping = %d, %v; want %d", sourceID, got, ok, want)
 		}
 	}
-	if got, ok := mapGroup("Member"); !ok || got != perm.GroupMember {
-		t.Fatalf("member role mapping = %d, %v", got, ok)
+	if key, ok := mapFlarumPermission("discussion.flagPosts"); !ok || key != perm.KeyPostReport {
+		t.Fatalf("flagPosts mapping = %q, %v", key, ok)
+	}
+	if key, ok := mapFlarumPermission("discussion.likePosts"); !ok || key != perm.KeyPostReact {
+		t.Fatalf("likePosts mapping = %q, %v", key, ok)
+	}
+	for source, want := range map[string]string{
+		"discussion.replyWithoutApproval": perm.KeyReplyNoApproval,
+		"discussion.startWithoutApproval": perm.KeyThreadNoApproval,
+		"searchUsers":                     perm.KeySearchUsers,
+		"discussion.approvePosts":         perm.KeyPostApprove,
+		"discussion.editPosts":            perm.KeyPostEditAny,
+		"discussion.hide":                 perm.KeyThreadHide,
+		"discussion.hidePosts":            perm.KeyPostHide,
+		"discussion.lock":                 perm.KeyThreadLock,
+		"discussion.rename":               perm.KeyThreadRename,
+		"discussion.sticky":               perm.KeyThreadSticky,
+		"discussion.tag":                  perm.KeyThreadTag,
+		"discussion.viewFlags":            perm.KeyViewFlags,
+		"discussion.viewIpsPosts":         perm.KeyViewPostIP,
+		"user.suspend":                    perm.KeyUserSuspend,
+		"user.viewLastSeenAt":             perm.KeyUserLastSeen,
+	} {
+		if got, ok := mapFlarumPermission(source); !ok || got != want {
+			t.Errorf("%s mapping = %q, %v; want %q", source, got, ok, want)
+		}
+	}
+	if _, ok := mapGroup(5); ok {
+		t.Fatal("custom group named Admin was mapped by its editable name")
 	}
 }
 

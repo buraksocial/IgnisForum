@@ -5,6 +5,7 @@
   <div class="form-row"><input type="search" name="q" aria-label="{{.Locale.Text "search.title"}}" value="{{.Query}}" placeholder="{{.Locale.Text "search.placeholder"}}" autofocus></div>
   <button type="submit" class="btn btn-primary">{{.Locale.Text "nav.search"}}</button>
 </form>
+{{if .CanSearchMembers}}<p><a class="btn" href="/members/search">{{.Locale.Text "members.search_title"}}</a></p>{{end}}
 {{if .HaveQ}}
 {{if .Hits}}
 <table class="thread-table"><tbody>

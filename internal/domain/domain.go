@@ -89,6 +89,12 @@ const (
 	ThreadMoved   ThreadStatus = "moved"
 )
 
+const (
+	DiscussionVisible = iota
+	DiscussionPending
+	DiscussionHidden
+)
+
 // Thread is a discussion topic.
 type Thread struct {
 	ID              uint64       `json:"id"`
@@ -97,6 +103,7 @@ type Thread struct {
 	Slug            string       `json:"slug"`
 	PrefixID        uint64       `json:"prefix_id,omitempty"`
 	TagIDs          []uint64     `json:"tag_ids,omitempty"`
+	Sticky          bool         `json:"sticky,omitempty"`
 	UserID          uint64       `json:"user_id"`
 	FirstPostID     uint64       `json:"first_post_id"`
 	PostCount       int          `json:"post_count"`
@@ -105,7 +112,7 @@ type Thread struct {
 	MoveToThreadID  uint64       `json:"move_to_thread_id,omitempty"`
 	PollID          uint64       `json:"poll_id,omitempty"`
 	LikeScore       int          `json:"like_score"`
-	DiscussionState int          `json:"discussion_state"` // thread-level moderation state
+	DiscussionState int          `json:"discussion_state"` // DiscussionVisible/Pending/Hidden
 	LastPost        *LastPostRef `json:"last_post,omitempty"`
 	Date            time.Time    `json:"date"`
 	Version         uint64       `json:"version"` // optimistic concurrency marker
@@ -120,7 +127,7 @@ type Post struct {
 	MessageRendered string         `json:"message_rendered"`
 	Date            time.Time      `json:"date"`
 	EditedAt        time.Time      `json:"edited_at,omitempty"`
-	State           int            `json:"state"` // 0 visible, 1 moderated, 2 deleted
+	State           int            `json:"state"` // PostVisible/Pending/Deleted/Hidden
 	EditCount       int            `json:"edit_count"`
 	ReactionCounts  map[string]int `json:"reaction_counts,omitempty"` // reaction code → count
 	AttachmentIDs   []uint64       `json:"attachment_ids,omitempty"`
@@ -128,6 +135,13 @@ type Post struct {
 	UAHash          string         `json:"ua_h,omitempty"`
 	Version         uint64         `json:"version"`
 }
+
+const (
+	PostVisible = iota
+	PostPending
+	PostDeleted
+	PostHidden
+)
 
 // ThreadUserState preserves per-member read position and subscription settings.
 // Subscription is empty, "follow", or "ignore" (Flarum semantics).

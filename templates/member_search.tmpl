@@ -1,0 +1,22 @@
+{{define "member_search"}}
+{{template "header" .}}
+<h1>{{.Locale.Text "members.search_title"}}</h1>
+<form method="get" action="/members/search" style="max-width:560px;margin-bottom:24px">
+  <div class="form-row"><input type="search" name="q" aria-label="{{.Locale.Text "members.search_title"}}" value="{{.MemberQuery}}" placeholder="{{.Locale.Text "members.search_placeholder"}}" autofocus></div>
+  <button type="submit" class="btn btn-primary">{{.Locale.Text "nav.search"}}</button>
+</form>
+{{if .MemberQuery}}
+  {{if .MemberResults}}
+  <table class="thread-table"><tbody>
+    {{range .MemberResults}}
+    <tr class="thread-row"><td>
+      <a class="thread-title" href="/members/{{.ID}}">{{.Username}}</a>
+      {{if .Title}}<div class="thread-by">{{.Title}}</div>{{end}}
+      {{if $.CanViewLastSeen}}<div class="thread-by">{{$.Locale.Text "members.last_seen"}} · {{if .HasLastSeen}}{{$.Locale.Ago .LastSeen $.Now}}{{else}}{{$.Locale.Text "members.last_seen_unknown"}}{{end}}</div>{{end}}
+    </td></tr>
+    {{end}}
+  </tbody></table>
+  {{else}}<div class="empty">{{.Locale.Text "members.no_results"}}</div>{{end}}
+{{end}}
+{{template "footer" .}}
+{{end}}

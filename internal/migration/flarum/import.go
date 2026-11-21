@@ -145,6 +145,14 @@ func Import(snapshot *Snapshot, digest [32]byte, st *store.Store, repos *repo.Re
 	}
 
 	maxID := maxSourceID(userRows, groupRows, tagRows, discussionRows, postRows, flagRows)
+	seenGroups := make(map[uint64]bool)
+	for _, group := range groupRows {
+		name := strings.TrimSpace(group.NameSingular)
+		if group.ID == 0 || seenGroups[group.ID] || (group.ID > 3 && (len(name) < 2 || len(name) > 80)) {
+			return nil, fmt.Errorf("invalid or duplicate Flarum group %d", group.ID)
+		}
+		seenGroups[group.ID] = true
+	}
 	if maxID > ^uint64(0)-2 {
 		return nil, errors.New("source ID space is exhausted")
 	}
@@ -160,18 +168,16 @@ func Import(snapshot *Snapshot, digest [32]byte, st *store.Store, repos *repo.Re
 
 	groupMap := map[uint64]uint64{}
 	for _, group := range groupRows {
-		mapped, ok := mapGroup(group.NameSingular)
-		if ok {
-			groupMap[group.ID] = mapped
-			report.Tables["groups"] = increment(report.Tables["groups"])
-		} else {
-			name := strings.ToLower(strings.TrimSpace(group.NameSingular))
-			reason := "custom Flarum group has no equivalent IgnisForum role"
-			if name == "mod" || name == "moderator" || name == "moderators" {
-				reason = "moderator group omitted rather than mapped to members; configure a dedicated role before migration"
+		mapped, ok := mapGroup(group.ID)
+		if !ok {
+			custom, err := permissions.ImportGroup(group.ID, group.NameSingular, "Imported Flarum group")
+			if err != nil {
+				return nil, fmt.Errorf("import Flarum group %d: %w", group.ID, err)
 			}
-			report.Exceptions = append(report.Exceptions, Exception{Table: "groups", SourceID: group.ID, Reason: reason})
+			mapped = custom.ID
 		}
+		groupMap[group.ID] = mapped
+		report.Tables["groups"] = increment(report.Tables["groups"])
 	}
 	permissionGrants := make(map[uint64]map[string]bool)
 	for _, sourceGrant := range groupPermissionRows {
@@ -210,10 +216,9 @@ func Import(snapshot *Snapshot, digest [32]byte, st *store.Store, repos *repo.Re
 		if user.ID == 0 || strings.TrimSpace(user.Username) == "" {
 			return nil, fmt.Errorf("invalid Flarum user row id=%d", user.ID)
 		}
-		groups := userGroups[user.ID]
-		if len(groups) == 0 {
-			groups = []uint64{perm.GroupMember}
-		}
+		// Flarum's Member role is implicit for every registered account,
+		// including moderators and users with explicit custom memberships.
+		groups := appendUnique(userGroups[user.ID], perm.GroupMember)
 		previous, hadPrevious := users.GetByID(user.ID)
 		if hadPrevious && (!strings.EqualFold(previous.Username, user.Username) || previous.EmailHash != auth.HashEmail(user.Email)) {
 			return nil, fmt.Errorf("source user %d conflicts with an existing staging identity", user.ID)
@@ -352,16 +357,27 @@ func Import(snapshot *Snapshot, digest [32]byte, st *store.Store, repos *repo.Re
 		if discussion.Locked != 0 {
 			status = domain.ThreadClosed
 		}
-		private := discussion.Private != 0 || discussion.Approved == 0 || discussion.HiddenAt != nil
+		private := discussion.Private != 0
 		for _, tagID := range discussionTags {
 			tag, _ := findTag(tagRows, tagID)
 			if tag.Restricted != 0 {
 				private = true
 			}
 		}
+		discussionState := domain.DiscussionVisible
+		if discussion.Approved == 0 {
+			discussionState = domain.DiscussionPending
+		}
+		if discussion.HiddenAt != nil {
+			discussionState = domain.DiscussionHidden
+		}
 		if private {
 			status = domain.ThreadDeleted
-			report.Exceptions = append(report.Exceptions, Exception{Table: "discussions", SourceID: discussion.ID, Reason: "private, hidden, or unapproved discussion retained but excluded from public indexes"})
+			report.Exceptions = append(report.Exceptions, Exception{Table: "discussions", SourceID: discussion.ID, Reason: "private or restricted discussion retained but excluded from public indexes"})
+		} else if discussion.HiddenAt != nil {
+			report.Exceptions = append(report.Exceptions, Exception{Table: "discussions", SourceID: discussion.ID, Reason: "hidden discussion retained in a reversible moderation state"})
+		} else if discussion.Approved == 0 {
+			report.Exceptions = append(report.Exceptions, Exception{Table: "discussions", SourceID: discussion.ID, Reason: "unapproved discussion retained in the pending moderation queue"})
 		}
 		title := strings.TrimSpace(discussion.Title)
 		if title == "" {
@@ -387,9 +403,20 @@ func Import(snapshot *Snapshot, digest [32]byte, st *store.Store, repos *repo.Re
 			if sourcePost.Content != nil {
 				body = *sourcePost.Content
 			}
-			state := 0
-			if private || sourcePost.Private != 0 || sourcePost.Approved == 0 || sourcePost.HiddenAt != nil {
-				state = 2
+			state := domain.PostVisible
+			if private || sourcePost.Private != 0 {
+				state = domain.PostDeleted
+			} else if sourcePost.HiddenAt != nil {
+				state = domain.PostHidden
+			} else if discussionState == domain.DiscussionPending || sourcePost.Approved == 0 {
+				state = domain.PostPending
+			}
+			if state == domain.PostHidden {
+				report.Exceptions = append(report.Exceptions, Exception{Table: "posts", SourceID: sourcePost.ID, Reason: "hidden post retained in a reversible moderation state"})
+			} else if state == domain.PostPending {
+				report.Exceptions = append(report.Exceptions, Exception{Table: "posts", SourceID: sourcePost.ID, Reason: "unapproved post retained in the pending moderation queue"})
+			} else if state == domain.PostDeleted {
+				report.Exceptions = append(report.Exceptions, Exception{Table: "posts", SourceID: sourcePost.ID, Reason: "private post retained as unavailable"})
 			}
 			userID := optionalID(sourcePost.UserID)
 			post := &domain.Post{ID: sourcePost.ID, ThreadID: discussion.ID, UserID: userID,
@@ -400,7 +427,7 @@ func Import(snapshot *Snapshot, digest [32]byte, st *store.Store, repos *repo.Re
 				}
 			}
 			posts = append(posts, post)
-			if state != 2 {
+			if state == domain.PostVisible {
 				threadPostCount++
 				if threadLastPost == nil || date.After(threadLastPost.T) {
 					threadLastPost = &domain.LastPostRef{T: date, PostID: post.ID, UserID: post.UserID}
@@ -423,11 +450,9 @@ func Import(snapshot *Snapshot, digest [32]byte, st *store.Store, repos *repo.Re
 			threadLastPost = &domain.LastPostRef{T: p.Date, PostID: p.ID, UserID: p.UserID}
 		}
 		thread := &domain.Thread{ID: discussion.ID, NodeID: nodeID, Title: title, Slug: fmt.Sprintf("%s-%d", bbcode.Slug(title), discussion.ID),
-			TagIDs: append([]uint64(nil), discussionTags...), UserID: ownerID, FirstPostID: *discussion.FirstPostID,
-			PostCount: threadPostCount, Status: status, DiscussionState: 0, LastPost: threadLastPost, Date: createdAt, Version: 1}
-		if discussion.Sticky != 0 {
-			report.Exceptions = append(report.Exceptions, Exception{Table: "discussions", SourceID: discussion.ID, Reason: "sticky state is not modeled"})
-		}
+			TagIDs: append([]uint64(nil), discussionTags...), Sticky: discussion.Sticky != 0,
+			UserID: ownerID, FirstPostID: *discussion.FirstPostID,
+			PostCount: threadPostCount, Status: status, DiscussionState: discussionState, LastPost: threadLastPost, Date: createdAt, Version: 1}
 		if len(discussionTags) > 0 && nodeID != discussionTags[0] { /* tag list is retained in Thread.TagIDs */
 		}
 		if err := repos.Threads.Import(thread, posts); err != nil {
@@ -558,13 +583,15 @@ func setSourceCounts(s *Snapshot, report *ImportReport) {
 
 func increment(c TableCount) TableCount { c.Imported++; return c }
 
-func mapGroup(name string) (uint64, bool) {
-	switch strings.ToLower(strings.TrimSpace(name)) {
-	case "admin", "administrator", "administrators":
+func mapGroup(sourceID uint64) (uint64, bool) {
+	// Flarum reserves IDs 1/2/3 for administrator/guest/member. Names are
+	// editable and must never be used to infer privileged membership.
+	switch sourceID {
+	case 1:
 		return perm.GroupAdmin, true
-	case "member", "members":
+	case 3:
 		return perm.GroupMember, true
-	case "guest", "guests":
+	case 2:
 		return perm.GroupGuest, true
 	default:
 		return 0, false
@@ -579,6 +606,40 @@ func mapFlarumPermission(name string) (string, bool) {
 		return perm.KeyForumThread, true
 	case "discussion.reply":
 		return perm.KeyForumReply, true
+	case "discussion.flagPosts":
+		return perm.KeyPostReport, true
+	case "discussion.likePosts":
+		return perm.KeyPostReact, true
+	case "discussion.replyWithoutApproval":
+		return perm.KeyReplyNoApproval, true
+	case "discussion.startWithoutApproval":
+		return perm.KeyThreadNoApproval, true
+	case "searchUsers":
+		return perm.KeySearchUsers, true
+	case "discussion.approvePosts":
+		return perm.KeyPostApprove, true
+	case "discussion.editPosts":
+		return perm.KeyPostEditAny, true
+	case "discussion.hide":
+		return perm.KeyThreadHide, true
+	case "discussion.hidePosts":
+		return perm.KeyPostHide, true
+	case "discussion.lock":
+		return perm.KeyThreadLock, true
+	case "discussion.rename":
+		return perm.KeyThreadRename, true
+	case "discussion.sticky":
+		return perm.KeyThreadSticky, true
+	case "discussion.tag":
+		return perm.KeyThreadTag, true
+	case "discussion.viewFlags":
+		return perm.KeyViewFlags, true
+	case "discussion.viewIpsPosts":
+		return perm.KeyViewPostIP, true
+	case "user.suspend":
+		return perm.KeyUserSuspend, true
+	case "user.viewLastSeenAt":
+		return perm.KeyUserLastSeen, true
 	default:
 		return "", false
 	}

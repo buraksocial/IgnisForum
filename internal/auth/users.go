@@ -96,6 +96,28 @@ func (u *UserRepo) List(offset, limit int) ([]*domain.User, int) {
 	return users, total
 }
 
+// Search matches public usernames only; email addresses and other private
+// account fields are never searchable or returned.
+func (u *UserRepo) Search(query string, limit int) []*domain.User {
+	query = strings.ToLower(strings.TrimSpace(query))
+	if query == "" || limit <= 0 {
+		return nil
+	}
+	if limit > 50 {
+		limit = 50
+	}
+	max := u.s.s.MaxID(store.TypeUser)
+	results := make([]*domain.User, 0, limit)
+	for id := max; id > 0 && len(results) < limit; id-- {
+		user, ok := u.GetByID(id)
+		if !ok || user.State != 0 || !strings.Contains(strings.ToLower(user.Username), query) {
+			continue
+		}
+		results = append(results, user)
+	}
+	return results
+}
+
 // ByName resolves a login identifier: a username, or (contains '@') an email.
 func (u *UserRepo) ByName(name string) (*domain.User, bool) {
 	name = strings.TrimSpace(name)
@@ -256,6 +278,19 @@ func (u *UserRepo) UpdateProfile(id uint64, title, signature string) error {
 		return ErrNotFound
 	}
 	usr.Title, usr.Signature = title, signature
+	return u.s.s.PutJSON(keyUser(id), usr)
+}
+
+// SetSuspended switches an account between active (0) and suspended (1).
+func (u *UserRepo) SetSuspended(id uint64, suspended bool) error {
+	usr, ok := u.GetByID(id)
+	if !ok {
+		return ErrNotFound
+	}
+	usr.State = 0
+	if suspended {
+		usr.State = 1
+	}
 	return u.s.s.PutJSON(keyUser(id), usr)
 }
 

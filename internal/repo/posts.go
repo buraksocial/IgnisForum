@@ -18,10 +18,20 @@ type PostRepo struct {
 // Create adds a reply to a thread. Order: post primary, indexes, thread bump,
 // node bump, FT.
 func (p *PostRepo) Create(threadID, userID uint64, rawMessage string) (*domain.Post, error) {
+	return p.CreateWithApproval(threadID, userID, rawMessage, true)
+}
+
+// CreateWithApproval stores a pending reply when the caller lacks the
+// without-approval permission. Pending posts remain primary records but never
+// enter public indexes, full-text search, counters, or notifications.
+func (p *PostRepo) CreateWithApproval(threadID, userID uint64, rawMessage string, approved bool) (*domain.Post, error) {
 	s := p.r.S
 	thread, ok := p.r.Threads.Get(threadID)
 	if !ok {
 		return nil, fmt.Errorf("thread %d not found", threadID)
+	}
+	if thread.Status != domain.ThreadOpen || thread.DiscussionState != domain.DiscussionVisible {
+		return nil, fmt.Errorf("thread %d is not accepting replies", threadID)
 	}
 	now := time.Now().UTC()
 
@@ -31,7 +41,10 @@ func (p *PostRepo) Create(threadID, userID uint64, rawMessage string) (*domain.P
 	post := &domain.Post{
 		ID: postID, ThreadID: threadID, UserID: userID,
 		MessageRaw: rawMessage, MessageRendered: bbcode.Render(rawMessage),
-		Date: now, State: 0,
+		Date: now, State: domain.PostVisible,
+	}
+	if !approved {
+		post.State = domain.PostPending
 	}
 
 	// 1. PRIMARY FIRST.
@@ -41,6 +54,10 @@ func (p *PostRepo) Create(threadID, userID uint64, rawMessage string) (*domain.P
 
 	// 2. INDEXES.
 	p.indexPost(post)
+
+	if post.State == domain.PostPending {
+		return post, nil
+	}
 
 	// 3. THREAD + NODE COUNTERS.
 	if err := p.r.Threads.BumpThread(threadID, postID, userID, now); err != nil {
@@ -83,8 +100,11 @@ func (p *PostRepo) Edit(id uint64, message string) (*domain.Post, error) {
 	if err := p.r.S.PutJSON(keyPost(id), post); err != nil {
 		return nil, err
 	}
-	if thread, ok := p.r.Threads.Get(post.ThreadID); ok {
+	if thread, ok := p.r.Threads.Get(post.ThreadID); ok &&
+		thread.DiscussionState == domain.DiscussionVisible && thread.Status != domain.ThreadDeleted {
 		p.r.S.FTAdd(fmt.Sprintf("post:%d", post.ID), thread.Title+" "+post.MessageRendered)
+	} else {
+		p.r.S.FTRemove(fmt.Sprintf("post:%d", post.ID))
 	}
 	return post, nil
 }
@@ -94,19 +114,21 @@ func (p *PostRepo) Edit(id uint64, message string) (*domain.Post, error) {
 // indexes so a restart can repair an interrupted index update.
 func (p *PostRepo) DeleteReply(id uint64) error {
 	post, ok := p.Get(id)
-	if !ok || post.State != 0 {
+	if !ok || post.State != domain.PostVisible {
 		return fmt.Errorf("post %d not found or already deleted", id)
 	}
 	thread, ok := p.r.Threads.Get(post.ThreadID)
 	if !ok || thread.FirstPostID == id {
 		return fmt.Errorf("the first post of a discussion cannot be deleted")
 	}
-	post.State = 2
+	wasPublic := thread.DiscussionState == domain.DiscussionVisible && thread.Status != domain.ThreadDeleted
+	post.State = domain.PostDeleted
 	post.Version++
 	if err := p.r.S.PutJSON(keyPost(id), post); err != nil {
 		return err
 	}
 	p.r.S.ZRem(ThreadPostsKey(post.ThreadID), id)
+	p.r.S.ZRem(IdxPendingPosts, id)
 	p.r.S.ZRem(IdxLatestPosts, id)
 	p.r.S.ZRem(userPostsIdx(post.UserID), id)
 	p.r.S.FTRemove(fmt.Sprintf("post:%d", id))
@@ -116,15 +138,7 @@ func (p *PostRepo) DeleteReply(id uint64) error {
 		thread.PostCount = 1
 	}
 	if thread.LastPost != nil && thread.LastPost.PostID == id {
-		count := p.r.S.ZCard(ThreadPostsKey(thread.ID))
-		if count > 0 {
-			ids := p.r.S.ZOldest(ThreadPostsKey(thread.ID), count-1, 1)
-			if len(ids) == 1 {
-				if last, found := p.Get(ids[0]); found {
-					thread.LastPost = &domain.LastPostRef{T: last.Date, PostID: last.ID, UserID: last.UserID}
-				}
-			}
-		}
+		thread.LastPost = p.latestVisibleInThread(thread.ID)
 	}
 	thread.Version++
 	if err := p.r.S.PutJSON(keyThread(thread.ID), thread); err != nil {
@@ -132,7 +146,7 @@ func (p *PostRepo) DeleteReply(id uint64) error {
 	}
 	p.r.Threads.indexThread(thread)
 
-	if node, found := p.r.Nodes.Get(thread.NodeID); found {
+	if node, found := p.r.Nodes.Get(thread.NodeID); found && wasPublic {
 		if node.PostCount > 0 {
 			node.PostCount--
 		}
@@ -152,6 +166,205 @@ func (p *PostRepo) DeleteReply(id uint64) error {
 	return nil
 }
 
+// Pending returns post IDs awaiting moderator approval, newest first.
+func (p *PostRepo) Pending(offset, n int) []uint64 {
+	return p.r.S.ZPage(IdxPendingPosts, offset, n)
+}
+
+// Approve publishes one pending post and updates all derived indexes/counters.
+func (p *PostRepo) Approve(id uint64) error {
+	post, ok := p.Get(id)
+	if !ok || post.State != domain.PostPending {
+		return fmt.Errorf("post %d is not pending", id)
+	}
+	thread, ok := p.r.Threads.Get(post.ThreadID)
+	if !ok || thread.DiscussionState == domain.DiscussionHidden || thread.Status == domain.ThreadDeleted {
+		return fmt.Errorf("thread %d not found", post.ThreadID)
+	}
+	if thread.DiscussionState == domain.DiscussionPending && post.ID != thread.FirstPostID {
+		return fmt.Errorf("the first post must be approved before replies")
+	}
+	post.State = domain.PostVisible
+	post.Version++
+	if err := p.r.S.PutJSON(keyPost(id), post); err != nil {
+		return err
+	}
+	p.r.S.ZRem(IdxPendingPosts, id)
+	if post.ID == thread.FirstPostID && thread.DiscussionState == domain.DiscussionPending {
+		thread.DiscussionState = domain.DiscussionVisible
+		if err := p.r.S.PutJSON(keyThread(thread.ID), thread); err != nil {
+			return err
+		}
+		p.RefreshThreadVisibility(thread)
+		p.r.Threads.indexThread(thread)
+	}
+	p.indexPost(post)
+	if thread.DiscussionState == domain.DiscussionVisible {
+		p.r.S.FTAdd(fmt.Sprintf("post:%d", id), thread.Title+" "+post.MessageRendered)
+	}
+	if err := p.r.Threads.BumpThread(thread.ID, post.ID, post.UserID, post.Date); err != nil {
+		return err
+	}
+	p.bumpNode(thread.NodeID, post.Date, post.ID, post.UserID, post.ID == thread.FirstPostID)
+	_ = p.r.Notifications.Create(thread.UserID, post.UserID, thread.ID, post.ID)
+	return nil
+}
+
+// Hide changes a visible post to the reversible hidden state. Deleted posts
+// remain distinct and cannot be restored through moderation.
+func (p *PostRepo) Hide(id uint64) error {
+	post, ok := p.Get(id)
+	if !ok || post.State != domain.PostVisible {
+		return fmt.Errorf("post %d is not visible", id)
+	}
+	thread, ok := p.r.Threads.Get(post.ThreadID)
+	if !ok || thread.FirstPostID == id {
+		return fmt.Errorf("the first post cannot be hidden independently")
+	}
+	wasPublic := thread.DiscussionState == domain.DiscussionVisible && thread.Status != domain.ThreadDeleted
+	post.State = domain.PostHidden
+	post.Version++
+	if err := p.r.S.PutJSON(keyPost(id), post); err != nil {
+		return err
+	}
+	p.r.S.ZRem(IdxLatestPosts, id)
+	p.r.S.ZRem(userPostsIdx(post.UserID), id)
+	p.r.S.FTRemove(fmt.Sprintf("post:%d", id))
+	thread.PostCount--
+	if thread.PostCount < 1 {
+		thread.PostCount = 1
+	}
+	if thread.LastPost != nil && thread.LastPost.PostID == id {
+		thread.LastPost = p.latestVisibleInThread(thread.ID)
+	}
+	thread.Version++
+	p.r.Threads.removeThreadIndexes(thread)
+	if err := p.r.S.PutJSON(keyThread(thread.ID), thread); err != nil {
+		return err
+	}
+	p.r.Threads.indexThread(thread)
+	if node, found := p.r.Nodes.Get(thread.NodeID); found && wasPublic {
+		if node.PostCount > 0 {
+			node.PostCount--
+		}
+		if node.LastPost != nil && node.LastPost.PostID == id {
+			node.LastPost = p.latestVisibleInNode(node.ID)
+		}
+		if err := p.r.S.PutJSON(keyNode(node.ID), node); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (p *PostRepo) Restore(id uint64) error {
+	post, ok := p.Get(id)
+	if !ok || post.State != domain.PostHidden {
+		return fmt.Errorf("post %d is not hidden", id)
+	}
+	thread, ok := p.r.Threads.Get(post.ThreadID)
+	if !ok || thread.DiscussionState != domain.DiscussionVisible || thread.Status == domain.ThreadDeleted {
+		return fmt.Errorf("thread is not publicly visible")
+	}
+	post.State = domain.PostVisible
+	post.Version++
+	if err := p.r.S.PutJSON(keyPost(id), post); err != nil {
+		return err
+	}
+	thread.PostCount++
+	if thread.LastPost == nil || post.Date.After(thread.LastPost.T) {
+		thread.LastPost = &domain.LastPostRef{T: post.Date, PostID: post.ID, UserID: post.UserID}
+	}
+	thread.Version++
+	p.r.Threads.removeThreadIndexes(thread)
+	if err := p.r.S.PutJSON(keyThread(thread.ID), thread); err != nil {
+		return err
+	}
+	p.r.Threads.indexThread(thread)
+	p.indexPost(post)
+	p.r.S.FTAdd(fmt.Sprintf("post:%d", id), thread.Title+" "+post.MessageRendered)
+	p.bumpNode(thread.NodeID, post.Date, post.ID, post.UserID, false)
+	return nil
+}
+
+func (p *PostRepo) latestVisibleInThread(threadID uint64) *domain.LastPostRef {
+	ids := p.r.S.ZPage(ThreadPostsKey(threadID), 0, p.r.S.ZCard(ThreadPostsKey(threadID)))
+	for _, id := range ids {
+		if post, ok := p.Get(id); ok && post.State == domain.PostVisible {
+			return &domain.LastPostRef{T: post.Date, PostID: post.ID, UserID: post.UserID}
+		}
+	}
+	return nil
+}
+
+func (p *PostRepo) latestVisibleInNode(nodeID uint64) *domain.LastPostRef {
+	ids := p.r.Threads.List(nodeID, "last", 0, p.r.S.ZCard(NodeThreadsKey(nodeID)))
+	for _, id := range ids {
+		if thread, ok := p.r.Threads.Get(id); ok && thread.LastPost != nil {
+			return thread.LastPost
+		}
+	}
+	return nil
+}
+
+// SetClientIP stores only the existing one-way IP digest used by the
+// moderator-only view; raw client addresses are never persisted.
+func (p *PostRepo) SetClientIP(id uint64, digest string) error {
+	post, ok := p.Get(id)
+	if !ok {
+		return fmt.Errorf("post %d not found", id)
+	}
+	post.IPHash = digest
+	return p.r.S.PutJSON(keyPost(id), post)
+}
+
+func (p *PostRepo) indexPost(post *domain.Post) {
+	s := p.r.S
+	if post.State == domain.PostPending {
+		s.ZAddIdx(IdxPendingPosts, ts(post.Date), post.ID)
+		s.ZAddIdx(ThreadPostsKey(post.ThreadID), ts(post.Date), post.ID)
+		return
+	}
+	if post.State == domain.PostHidden {
+		s.ZAddIdx(ThreadPostsKey(post.ThreadID), ts(post.Date), post.ID)
+		return
+	}
+	if post.State != domain.PostVisible {
+		return
+	}
+	thread, ok := p.r.Threads.Get(post.ThreadID)
+	if !ok || thread.Status == domain.ThreadDeleted {
+		return
+	}
+	s.ZAddIdx(ThreadPostsKey(post.ThreadID), ts(post.Date), post.ID)
+	if thread.DiscussionState != domain.DiscussionVisible {
+		return
+	}
+	s.ZAddIdx(IdxLatestPosts, ts(post.Date), post.ID)
+	s.ZAddIdx(userPostsIdx(post.UserID), ts(post.Date), post.ID)
+}
+
+// RefreshThreadVisibility updates public post indexes and search documents
+// after the containing discussion's visibility has been persisted.
+func (p *PostRepo) RefreshThreadVisibility(thread *domain.Thread) {
+	ids := p.r.S.ZPage(ThreadPostsKey(thread.ID), 0, p.r.S.ZCard(ThreadPostsKey(thread.ID)))
+	for _, id := range ids {
+		post, ok := p.Get(id)
+		if !ok || post.State != domain.PostVisible {
+			continue
+		}
+		if thread.DiscussionState == domain.DiscussionVisible && thread.Status != domain.ThreadDeleted {
+			p.r.S.ZAddIdx(IdxLatestPosts, ts(post.Date), post.ID)
+			p.r.S.ZAddIdx(userPostsIdx(post.UserID), ts(post.Date), post.ID)
+			p.r.S.FTAdd(fmt.Sprintf("post:%d", post.ID), thread.Title+" "+post.MessageRendered)
+		} else {
+			p.r.S.ZRem(IdxLatestPosts, post.ID)
+			p.r.S.ZRem(userPostsIdx(post.UserID), post.ID)
+			p.r.S.FTRemove(fmt.Sprintf("post:%d", post.ID))
+		}
+	}
+}
+
 // List returns a page of post IDs in a thread, oldest first (chronological).
 func (p *PostRepo) List(threadID uint64, offset, n int) []uint64 {
 	return p.r.S.ZOldest(ThreadPostsKey(threadID), offset, n)
@@ -163,14 +376,6 @@ func (p *PostRepo) RecentByUser(userID uint64, n int) []uint64 {
 }
 
 func (p *PostRepo) CountByUser(userID uint64) int { return p.r.S.ZCard(userPostsIdx(userID)) }
-
-// indexPost adds a post to the thread, latest-posts and user-posts indexes.
-func (p *PostRepo) indexPost(post *domain.Post) {
-	s := p.r.S
-	s.ZAddIdx(ThreadPostsKey(post.ThreadID), ts(post.Date), post.ID)
-	s.ZAddIdx(IdxLatestPosts, ts(post.Date), post.ID)
-	s.ZAddIdx(userPostsIdx(post.UserID), ts(post.Date), post.ID)
-}
 
 // bumpNode updates the node's denormalised counters/last-post (single RMW blob).
 // isThreadStart adds the thread counter in the same RMW (thread creation is a
@@ -203,11 +408,11 @@ func (p *PostRepo) rebuildHook(key string, blob []byte) {
 	// visited after posts during rebuild.
 	post.ReactionCounts = nil
 	_ = s.PutJSON(keyPost(post.ID), &post)
-	if post.State == 2 { // deleted
+	p.indexPost(&post)
+	if post.State != domain.PostVisible {
 		return
 	}
-	p.indexPost(&post)
-	if th, ok := p.r.Threads.Get(post.ThreadID); ok {
+	if th, ok := p.r.Threads.Get(post.ThreadID); ok && th.DiscussionState == domain.DiscussionVisible && th.Status != domain.ThreadDeleted {
 		s.FTAdd(fmt.Sprintf("post:%d", post.ID), th.Title+" "+post.MessageRendered)
 	}
 }

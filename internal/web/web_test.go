@@ -67,6 +67,11 @@ func newTestServerWithDeps(t *testing.T, deps Deps) (*httptest.Server, *store.St
 	if err := perms.Bootstrap(); err != nil {
 		t.Fatal(err)
 	}
+	// Model the source snapshot's explicit GroupMember grants. Bootstrap keeps
+	// these sensitive permissions denied by default; the migration imports them
+	// only because Flarum explicitly grants them to its registered-member group.
+	grantTestGroup(t, perms, perm.GroupMember, perm.ScopeGlobal, 0,
+		perm.KeyThreadNoApproval, perm.KeyReplyNoApproval, perm.KeySearchUsers)
 
 	themes, err := LoadThemeManager(assets.FS, "")
 	if err != nil {
@@ -78,6 +83,20 @@ func newTestServerWithDeps(t *testing.T, deps Deps) (*httptest.Server, *store.St
 	ts := httptest.NewServer(srv.router())
 	t.Cleanup(ts.Close)
 	return ts, s, r, authSvc, perms
+}
+
+func grantTestGroup(t *testing.T, perms *perm.Engine, group uint64, scope string, scopeID uint64, keys ...string) {
+	t.Helper()
+	current := perms.GetGrant(group, scope, scopeID)
+	if current == nil {
+		current = make(map[string]bool)
+	}
+	for _, key := range keys {
+		current[key] = true
+	}
+	if err := perms.SetGrant(group, scope, scopeID, current); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // router factors the M2 route wiring out of New for tests (identical chain).
@@ -322,7 +341,8 @@ func TestMemberProfileAndSelfEdit(t *testing.T) {
 }
 
 func TestThreadTagsAreCreatedAndBrowsable(t *testing.T) {
-	ts, _, repos, _, _ := newTestServer(t)
+	ts, _, repos, _, perms := newTestServer(t)
+	grantTestGroup(t, perms, perm.GroupMember, perm.ScopeGlobal, 0, perm.KeyThreadTag)
 	member := register(t, ts, "tagcreator")
 	csrf := mustFindCSRF(t, member, ts.URL+"/f/2/new")
 	response := formPost(t, member, ts.URL+"/f/2/new", url.Values{
@@ -342,6 +362,214 @@ func TestThreadTagsAreCreatedAndBrowsable(t *testing.T) {
 	_, threadBody, _ := getBody(t, member, ts.URL+"/t/"+itoa(repos.Tags.List("go", 0, 1)[0]))
 	if !strings.Contains(threadBody, `href="/tags/go"`) {
 		t.Fatalf("thread tag link missing: %s", threadBody)
+	}
+}
+
+func TestUnapprovedContentStaysPrivateUntilApproved(t *testing.T) {
+	ts, _, repos, authSvc, perms := newTestServer(t)
+	memberGrant := perms.GetGrant(perm.GroupMember, perm.ScopeGlobal, 0)
+	memberGrant[perm.KeyThreadNoApproval] = false
+	memberGrant[perm.KeyReplyNoApproval] = false
+	if err := perms.SetGrant(perm.GroupMember, perm.ScopeGlobal, 0, memberGrant); err != nil {
+		t.Fatal(err)
+	}
+	author := register(t, ts, "pendingauthor")
+	csrf := mustFindCSRF(t, author, ts.URL+"/f/2/new")
+	response := formPost(t, author, ts.URL+"/f/2/new", url.Values{
+		"csrf": {csrf}, "title": {"Pending thread"}, "message": {"pending first body"},
+	})
+	if response.StatusCode != http.StatusSeeOther {
+		t.Fatalf("create pending thread status=%d", response.StatusCode)
+	}
+	location := response.Header.Get("Location")
+	path, _, _ := strings.Cut(strings.TrimPrefix(location, "/t/"), "?")
+	threadID := parseID(path)
+	thread, ok := repos.Threads.Get(threadID)
+	if !ok || thread.DiscussionState != domain.DiscussionPending || thread.PostCount != 0 {
+		t.Fatalf("pending thread state=%+v found=%v location=%q", thread, ok, location)
+	}
+	first, ok := repos.Posts.Get(thread.FirstPostID)
+	if !ok || first.State != domain.PostPending {
+		t.Fatalf("pending first post=%+v found=%v", first, ok)
+	}
+	if _, indexed := repos.S.ZScoreOf(repo.IdxLatestThreads, threadID); indexed {
+		t.Fatal("pending discussion entered the public thread index")
+	}
+	if _, indexed := repos.S.ZScoreOf(repo.IdxLatestPosts, first.ID); indexed {
+		t.Fatal("pending first post entered the public post index")
+	}
+	if hits := repos.S.FTSearch("pending first body", 10); len(hits) != 0 {
+		t.Fatalf("pending content entered full-text search: %+v", hits)
+	}
+	_, ownBody, _ := getBody(t, author, ts.URL+"/t/"+itoa(threadID))
+	if !strings.Contains(ownBody, "pending first body") || !strings.Contains(ownBody, "Onay bekliyor") {
+		t.Fatalf("author cannot review own pending thread: %s", ownBody)
+	}
+	_, publicBody, _ := getBody(t, noRedirectClient(), ts.URL+"/t/"+itoa(threadID))
+	if strings.Contains(publicBody, "pending first body") {
+		t.Fatalf("pending thread body leaked to an unauthenticated visitor: %s", publicBody)
+	}
+
+	// Replies require their own no-approval grant even on a published thread.
+	csrf = mustFindCSRF(t, author, ts.URL+"/t/3")
+	response = formPost(t, author, ts.URL+"/t/3/reply", url.Values{"csrf": {csrf}, "message": {"pending reply body"}})
+	if response.StatusCode != http.StatusSeeOther || !strings.Contains(response.Header.Get("Location"), "pending=1") {
+		t.Fatalf("pending reply response=%d location=%q", response.StatusCode, response.Header.Get("Location"))
+	}
+	pendingReplyID := uint64(0)
+	for _, id := range repos.Posts.Pending(0, 20) {
+		post, found := repos.Posts.Get(id)
+		if found && post.MessageRaw == "pending reply body" {
+			pendingReplyID = id
+			if post.State != domain.PostPending {
+				t.Fatalf("reply state=%d, want pending", post.State)
+			}
+		}
+	}
+	if pendingReplyID == 0 {
+		t.Fatal("pending reply missing from moderator queue")
+	}
+	_, ownThreadBody, _ := getBody(t, author, ts.URL+"/t/3")
+	if !strings.Contains(ownThreadBody, "pending reply body") {
+		t.Fatalf("author cannot see own pending reply: %s", ownThreadBody)
+	}
+	_, publicThreadBody, _ := getBody(t, noRedirectClient(), ts.URL+"/t/3")
+	if strings.Contains(publicThreadBody, "pending reply body") {
+		t.Fatalf("pending reply leaked into public thread: %s", publicThreadBody)
+	}
+
+	admin := loginAsAdmin(t, ts, repos.S, authSvc)
+	csrf = mustFindCSRF(t, admin, ts.URL+"/admin/reports")
+	approved := formPost(t, admin, ts.URL+"/admin/moderation/posts/"+itoa(first.ID)+"/approve", url.Values{"csrf": {csrf}})
+	if approved.StatusCode != http.StatusSeeOther {
+		t.Fatalf("approve first post status=%d", approved.StatusCode)
+	}
+	thread, _ = repos.Threads.Get(threadID)
+	if thread.DiscussionState != domain.DiscussionVisible || thread.PostCount != 1 {
+		t.Fatalf("approved discussion state=%+v", thread)
+	}
+	if _, indexed := repos.S.ZScoreOf(repo.IdxLatestThreads, threadID); !indexed {
+		t.Fatal("approved discussion was not added to public thread index")
+	}
+	csrf = mustFindCSRF(t, admin, ts.URL+"/admin/reports")
+	approved = formPost(t, admin, ts.URL+"/admin/moderation/posts/"+itoa(pendingReplyID)+"/approve", url.Values{"csrf": {csrf}})
+	if approved.StatusCode != http.StatusSeeOther {
+		t.Fatalf("approve reply status=%d", approved.StatusCode)
+	}
+	if _, indexed := repos.S.ZScoreOf(repo.IdxLatestPosts, pendingReplyID); !indexed {
+		t.Fatal("approved reply was not added to public post index")
+	}
+}
+
+func TestNodeScopedModerationQueueAndDirectHandlers(t *testing.T) {
+	ts, s, repos, _, perms := newTestServer(t)
+	member := register(t, ts, "nodescopedmod")
+	var memberID uint64
+	if ok, err := s.GetJSON("username:nodescopedmod", &memberID); err != nil || !ok || memberID == 0 {
+		t.Fatalf("registered member id = %d, found=%v err=%v", memberID, ok, err)
+	}
+	tree, err := repos.Nodes.LoadTree()
+	if err != nil || len(tree.Categories) == 0 || len(tree.Categories[0].Forums) == 0 {
+		t.Fatalf("forum tree = %+v err=%v", tree, err)
+	}
+	forumA := tree.Categories[0].Forums[0].NodeID
+	forumB, err := repos.Nodes.CreateForum(tree.Categories[0].NodeID, "Restricted forum", "restricted", "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	threadA, _, err := repos.Threads.Create(forumA, memberID, "Scoped approval target", "first A")
+	if err != nil {
+		t.Fatal(err)
+	}
+	threadB, _, err := repos.Threads.Create(forumB.ID, memberID, "Other approval target", "first B")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pendingA, err := repos.Posts.CreateWithApproval(threadA.ID, memberID, "pending A", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pendingB, err := repos.Posts.CreateWithApproval(threadB.ID, memberID, "pending B", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	grantTestGroup(t, perms, perm.GroupMember, perm.ScopeNode, forumA, perm.KeyPostApprove, perm.KeyPostHide, perm.KeyThreadHide)
+
+	code, queue, _ := getBody(t, member, ts.URL+"/admin/reports")
+	if code != http.StatusOK || !strings.Contains(queue, "pending A") || strings.Contains(queue, "pending B") {
+		t.Fatalf("node-scoped queue status=%d body=%s", code, queue)
+	}
+	csrf := mustFindCSRF(t, member, ts.URL+"/admin/reports")
+	missing := formPost(t, member, ts.URL+"/admin/moderation/posts/999999/approve", url.Values{"csrf": {csrf}})
+	if missing.StatusCode != http.StatusNotFound {
+		t.Fatalf("approve missing post status=%d", missing.StatusCode)
+	}
+	csrf = mustFindCSRF(t, member, ts.URL+"/admin/reports")
+	denied := formPost(t, member, ts.URL+"/admin/moderation/posts/"+itoa(pendingB.ID)+"/approve", url.Values{"csrf": {csrf}})
+	if denied.StatusCode != http.StatusForbidden {
+		t.Fatalf("approve outside authorized forum status=%d", denied.StatusCode)
+	}
+	if pending, ok := repos.Posts.Get(pendingB.ID); !ok || pending.State != domain.PostPending {
+		t.Fatalf("unauthorized approval changed post: %+v found=%v", pending, ok)
+	}
+	csrf = mustFindCSRF(t, member, ts.URL+"/admin/reports")
+	approved := formPost(t, member, ts.URL+"/admin/moderation/posts/"+itoa(pendingA.ID)+"/approve", url.Values{"csrf": {csrf}})
+	if approved.StatusCode != http.StatusSeeOther {
+		t.Fatalf("approve in authorized forum status=%d", approved.StatusCode)
+	}
+
+	replyA, err := repos.Posts.Create(threadA.ID, memberID, "moderation in A")
+	if err != nil {
+		t.Fatal(err)
+	}
+	replyB, err := repos.Posts.Create(threadB.ID, memberID, "moderation in B")
+	if err != nil {
+		t.Fatal(err)
+	}
+	csrf = mustFindCSRF(t, member, ts.URL+"/t/"+itoa(threadA.ID))
+	hidden := formPost(t, member, ts.URL+"/t/"+itoa(threadA.ID)+"/post/"+itoa(replyA.ID)+"/moderate", url.Values{"csrf": {csrf}, "action": {"hide"}})
+	if hidden.StatusCode != http.StatusSeeOther {
+		t.Fatalf("hide post in authorized forum status=%d", hidden.StatusCode)
+	}
+	csrf = mustFindCSRF(t, member, ts.URL+"/t/"+itoa(threadA.ID))
+	editHidden := formPost(t, member, ts.URL+"/t/"+itoa(threadA.ID)+"/post/"+itoa(replyA.ID)+"/edit", url.Values{"csrf": {csrf}, "message": {"should not edit hidden content"}})
+	if editHidden.StatusCode != http.StatusNotFound {
+		t.Fatalf("direct edit of hidden post status=%d", editHidden.StatusCode)
+	}
+	for _, action := range []struct {
+		path string
+		form url.Values
+	}{
+		{path: "/reaction", form: url.Values{"csrf": {csrf}, "reaction": {"like"}}},
+		{path: "/report", form: url.Values{"csrf": {csrf}, "reason": {"hidden post report"}}},
+		{path: "/delete", form: url.Values{"csrf": {csrf}}},
+	} {
+		response := formPost(t, member, ts.URL+"/t/"+itoa(threadA.ID)+"/post/"+itoa(replyA.ID)+action.path, action.form)
+		if response.StatusCode != http.StatusNotFound {
+			t.Errorf("direct %s of hidden post status=%d", action.path, response.StatusCode)
+		}
+	}
+	code, _, _ = getBody(t, noRedirectClient(), ts.URL+"/t/"+itoa(threadA.ID)+"/post/"+itoa(replyA.ID))
+	if code != http.StatusNotFound {
+		t.Fatalf("hidden post permalink status=%d", code)
+	}
+	csrf = mustFindCSRF(t, member, ts.URL+"/t/"+itoa(threadB.ID))
+	denied = formPost(t, member, ts.URL+"/t/"+itoa(threadB.ID)+"/post/"+itoa(replyB.ID)+"/moderate", url.Values{"csrf": {csrf}, "action": {"hide"}})
+	if denied.StatusCode != http.StatusForbidden {
+		t.Fatalf("hide post outside authorized forum status=%d", denied.StatusCode)
+	}
+	if post, ok := repos.Posts.Get(replyB.ID); !ok || post.State != domain.PostVisible {
+		t.Fatalf("unauthorized post moderation changed state: %+v found=%v", post, ok)
+	}
+
+	csrf = mustFindCSRF(t, member, ts.URL+"/t/"+itoa(threadA.ID))
+	hiddenThread := formPost(t, member, ts.URL+"/t/"+itoa(threadA.ID)+"/moderate", url.Values{"csrf": {csrf}, "action": {"hide"}})
+	if hiddenThread.StatusCode != http.StatusSeeOther {
+		t.Fatalf("hide authorized thread status=%d", hiddenThread.StatusCode)
+	}
+	code, body, _ := getBody(t, noRedirectClient(), ts.URL+"/t/"+itoa(threadA.ID))
+	if code != http.StatusNotFound || strings.Contains(body, "first A") {
+		t.Fatalf("hidden thread leaked to a non-moderator: status=%d body=%s", code, body)
 	}
 }
 
@@ -864,6 +1092,39 @@ func TestReactionRequiresCSRFAndPersists(t *testing.T) {
 	_, body, _ := getBody(t, c, ts.URL+"/t/3")
 	if !strings.Contains(body, "👍 Beğen <span>1</span>") {
 		t.Fatal("reaction count not rendered")
+	}
+}
+
+func TestReportAndReactionPermissionsAreEnforced(t *testing.T) {
+	ts, _, repos, _, perms := newTestServer(t)
+	member := register(t, ts, "limitedmember")
+	postID := repos.Posts.List(3, 0, 1)[0]
+	csrf := mustFindCSRF(t, member, ts.URL+"/t/3")
+	if err := perms.SetGrant(perm.GroupMember, perm.ScopeGlobal, 0, map[string]bool{
+		perm.KeyAccess: true, perm.KeyForumView: true, perm.KeyForumThread: true,
+		perm.KeyForumReply: true, perm.KeySearch: true, perm.KeyPostReport: false, perm.KeyPostReact: false,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	resp := formPost(t, member, ts.URL+"/t/3/post/"+itoa(postID)+"/report", url.Values{"csrf": {csrf}, "reason": {"Spam content"}})
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("report without grant = %d, want 403", resp.StatusCode)
+	}
+	resp.Body.Close()
+	resp = formPost(t, member, ts.URL+"/t/3/post/"+itoa(postID)+"/reaction", url.Values{"csrf": {csrf}, "reaction": {"like"}})
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("reaction without grant = %d, want 403", resp.StatusCode)
+	}
+	resp.Body.Close()
+	if reports := repos.OpenReports(0, 10); len(reports) != 0 {
+		t.Fatal("report was created despite missing permission")
+	}
+	post, ok := repos.Posts.Get(postID)
+	if !ok {
+		t.Fatal("fixture post missing")
+	}
+	if len(post.ReactionCounts) != 0 {
+		t.Fatal("reaction was created despite missing permission")
 	}
 }
 
